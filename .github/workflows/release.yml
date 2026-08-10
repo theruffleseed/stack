@@ -1,0 +1,65 @@
+name: Release Firmware
+
+# The OTA half of "push to GitHub, it lands on the device": every push to
+# main that touches firmware/ compiles the sketch and publishes a GitHub
+# Release tagged v0.1.<run number>, with firmware.bin attached. The device's
+# OTA client (ota.cpp) polls the Releases API and flashes that asset when
+# its own compiled-in STACK_WALLET_VERSION differs from the latest tag.
+# See docs/OTA.md for the full loop and its security tradeoffs.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firmware/**"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up arduino-cli
+        uses: arduino/setup-arduino-cli@v2.0.0
+
+      - name: Install ESP32 board core
+        run: |
+          arduino-cli core update-index \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32 \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Install libraries
+        run: arduino-cli lib install ArduinoJson
+
+      - name: Stamp the version this build will identify itself as
+        id: version
+        run: |
+          VERSION="v0.1.${GITHUB_RUN_NUMBER}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          cat > firmware/StackWallet/version.h <<EOF
+          #pragma once
+          #define STACK_WALLET_VERSION "$VERSION"
+          EOF
+
+      - name: Compile sketch
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M" \
+            --export-binaries \
+            --build-path "${{ github.workspace }}/build-output" \
+            firmware/StackWallet
+
+      - name: Name the binary for the OTA client
+        run: cp build-output/StackWallet.ino.bin firmware.bin
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Stack Wallet ${{ steps.version.outputs.version }}
+          files: firmware.bin

@@ -1,0 +1,16 @@
+# Custom partition table for the 16MB-flash ESP32-S3 ePaper 3.97 board.
+#
+# The board's own factory firmware uses a single non-OTA "factory" app
+# partition, which can't receive HTTPUpdate OTA writes. This table swaps in
+# dual ota_0/ota_1 app slots (Espressif/arduino-esp32's standard
+# default_16MB.csv layout) so OTA::checkAndApplyNow() has somewhere to
+# write the new image. In Arduino IDE, set Tools > Partition Scheme >
+# "Custom" so this file is used instead of a built-in scheme.
+#
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x640000,
+app1,     app,  ota_1,   0x650000,0x640000,
+spiffs,   data, spiffs,  0xc90000,0x360000,
+coredump, data, coredump,0xFF0000,0x10000,
