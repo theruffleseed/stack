@@ -35,10 +35,14 @@ docs/                       HARDWARE.md, OTA.md, CONTENT.md
 2. **Tools > Board > Boards Manager**, install "esp32" (Espressif Systems).
 3. Open `firmware/StackWallet/StackWallet.ino`.
 4. **Tools**: Board = "ESP32S3 Dev Module", PSRAM = "OPI PSRAM", Flash Size
-   = "16MB". Partition Scheme can be left on its default - the sketch ships
-   its own `partitions.csv`, which Arduino always prefers over the Tools
-   menu selection whenever one is present next to the `.ino` file (see
-   [docs/OTA.md](docs/OTA.md) for why a custom table is needed at all).
+   = "16MB", **USB CDC On Boot = "Enabled"** (not the default - without
+   this you'll flash fine but get no Serial output over USB, since this
+   board uses the ESP32-S3's native USB peripheral rather than a separate
+   UART bridge chip). Partition Scheme can be left on its default - the
+   sketch ships its own `partitions.csv`, which Arduino always prefers over
+   the Tools menu selection whenever one is present next to the `.ino` file
+   (see [docs/OTA.md](docs/OTA.md) for why a custom table is needed at
+   all).
 5. **Sketch > Include Library > Manage Libraries**, install **ArduinoJson**
    (v7).
 6. Plug the board in over USB, select its port, and click Upload once to

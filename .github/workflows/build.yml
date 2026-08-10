@@ -37,5 +37,5 @@ jobs:
       - name: Compile sketch
         run: |
           arduino-cli compile \
-            --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M" \
+            --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,CDCOnBoot=cdc" \
             firmware/StackWallet

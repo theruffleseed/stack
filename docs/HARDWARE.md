@@ -63,7 +63,19 @@ or clock (PCF85063) would plug in.
 ## Flash / PSRAM
 
 16MB flash, octal (OPI) PSRAM. In Arduino IDE: **Tools > PSRAM > OPI
-PSRAM**, **Tools > Flash Size > 16MB**, **Tools > Partition Scheme >
-Custom** (this sketch ships its own `partitions.csv` with dual OTA app
-slots - see [OTA.md](OTA.md) for why the board's stock single-partition
-layout can't take OTA updates).
+PSRAM**, **Tools > Flash Size > 16MB**. Partition Scheme can be left on its
+default - this sketch ships its own `partitions.csv` with dual OTA app
+slots, which the Arduino-ESP32 build system always prefers over the Tools
+menu selection (see [OTA.md](OTA.md) for why the board's stock
+single-partition layout can't take OTA updates).
+
+## USB
+
+This board uses the ESP32-S3's native USB peripheral over the single
+USB-C port - there's no separate CP210x/CH340 UART bridge chip, so no
+vendor USB driver should be needed on any OS. In Arduino IDE, **Tools >
+USB CDC On Boot > Enabled** is required to get Serial output over that
+same port (it's not the toolchain default - confirmed against Waveshare's
+own recommended Tools configuration for this board). USB Mode ("Hardware
+CDC and JTAG") and Upload Mode ("UART0 / Hardware CDC") can stay on their
+defaults, which already match Waveshare's recommendation.

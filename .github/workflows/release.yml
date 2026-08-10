@@ -49,7 +49,7 @@ jobs:
       - name: Compile sketch
         run: |
           arduino-cli compile \
-            --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M" \
+            --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,CDCOnBoot=cdc" \
             --export-binaries \
             --build-path "${{ github.workspace }}/build-output" \
             firmware/StackWallet
