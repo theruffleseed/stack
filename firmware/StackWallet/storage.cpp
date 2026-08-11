@@ -24,6 +24,15 @@ String joinPath(const String &relative) {
     return String(SD_MOUNT_POINT) + "/" + relative;
 }
 
+// The config.h *_PATH constants are relative to the card root (e.g.
+// "/manifest.json"), but the card's VFS is registered under
+// SD_MOUNT_POINT ("/sdcard") - POSIX lookups of a bare "/manifest.json"
+// hit the root VFS and fail. All card access must go through the mount
+// point, exactly like joinPath() does for manifest content entries.
+String mountPath(const char *cardRootRelative) {
+    return joinPath(cardRootRelative);
+}
+
 void readItemArray(JsonArrayConst arr, const char *fileKey, std::vector<ContentItem> &out) {
     out.clear();
     for (JsonObjectConst obj : arr) {
@@ -89,9 +98,9 @@ bool loadManifest() {
 
     if (!mounted) return false;
 
-    File f = SD_MMC.open(MANIFEST_PATH, FILE_READ);
+    File f = SD_MMC.open(mountPath(MANIFEST_PATH), FILE_READ);
     if (!f) {
-        Serial.printf("Storage::loadManifest: could not open %s\n", MANIFEST_PATH);
+        Serial.printf("Storage::loadManifest: could not open %s\n", mountPath(MANIFEST_PATH).c_str());
         return false;
     }
 
@@ -144,7 +153,7 @@ std::vector<TodoItem> loadTodo() {
     std::vector<TodoItem> items;
     if (!mounted) return items;
 
-    File f = SD_MMC.open(TODO_PATH, FILE_READ);
+    File f = SD_MMC.open(mountPath(TODO_PATH), FILE_READ);
     if (!f) return items;
 
     while (f.available()) {
@@ -172,11 +181,11 @@ std::vector<TodoItem> loadTodo() {
 bool loadWifiCredentials(String &ssid, String &password) {
     if (!mounted) return false;
 
-    File f = SD_MMC.open(WIFI_CONFIG_PATH, FILE_READ);
+    File f = SD_MMC.open(mountPath(WIFI_CONFIG_PATH), FILE_READ);
     if (!f) {
         Serial.printf("Storage::loadWifiCredentials: could not open %s (copy "
                        "wifi.json.example from sdcard-template/ and fill it in)\n",
-                       WIFI_CONFIG_PATH);
+                       mountPath(WIFI_CONFIG_PATH).c_str());
         return false;
     }
 
@@ -202,7 +211,7 @@ bool loadWifiCredentials(String &ssid, String &password) {
 bool saveTodo(const std::vector<TodoItem> &items) {
     if (!mounted) return false;
 
-    File f = SD_MMC.open(TODO_PATH, FILE_WRITE);
+    File f = SD_MMC.open(mountPath(TODO_PATH), FILE_WRITE);
     if (!f) return false;
 
     for (const auto &item : items) {
