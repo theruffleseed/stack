@@ -66,7 +66,7 @@
 // consistent across every screen including loaded BMPs.
 // ---------------------------------------------------------------------------
 #define DISPLAY_ROTATE 90   // GUI_Paint.h ROTATE_90
-#define DISPLAY_MIRROR 0x00 // GUI_Paint.h MIRROR_NONE (0x03 = MIRROR_ORIGIN)
+#define DISPLAY_MIRROR 0x03 // GUI_Paint.h MIRROR_ORIGIN (0x00 = MIRROR_NONE) - confirmed needed on this unit: screen was upside down at 0x00
 
 // ---------------------------------------------------------------------------
 // Wi-Fi setup portal (Settings > Wi-Fi Setup): a temporary open AP + web
