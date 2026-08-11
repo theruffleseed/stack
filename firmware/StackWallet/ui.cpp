@@ -689,158 +689,31 @@ void goHome() {
 }
 
 // ---------------------------------------------------------------------------
-// Partial updates for fast scrolling: only the two changed rows are
-// redrawn and pushed, avoiding a full-panel refresh per button press.
-// ---------------------------------------------------------------------------
-
-// Home screen: only the accent bar changes (text and icons stay black).
-void partialHomeAccent(int oldIdx, int newIdx) {
-    const int rowH = 74;
-    const int y0 = 86 + oldIdx * rowH;
-    const int y1 = 86 + newIdx * rowH;
-    Display::beginPartialDraw();
-    Paint_DrawRectangle(8, y0 + 8, 8 + kAccentW + 4, y0 + rowH - 8, WHITE, DOT_PIXEL_1X1,
-                        DRAW_FILL_FULL);
-    Paint_DrawRectangle(8, y1 + 8, 8 + kAccentW + 4, y1 + rowH - 8, BLACK, DOT_PIXEL_1X1,
-                        DRAW_FILL_FULL);
-    Display::partialUpdate(8, min(y0 + 8, y1 + 8), 8 + kAccentW + 4,
-                           max(y0 + rowH - 8, y1 + rowH - 8));
-}
-
-// Generic list (cards, tickets, books): clear both row bands and redraw.
-void partialListMove(const ListState &st, int oldIdx, int newIdx,
-                     const std::vector<ContentItem> &items) {
-    const int W = Display::width();
-    int oldRow = oldIdx - st.scrollTop;
-    int newRow = newIdx - st.scrollTop;
-    int y0 = kListTop + oldRow * kRowH;
-    int y1 = kListTop + newRow * kRowH;
-    Display::beginPartialDraw();
-    Paint_DrawRectangle(kEdge, y0, W - kEdge, y0 + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    drawListRow(false, items[oldIdx].name, y0);
-    Paint_DrawRectangle(kEdge, y1, W - kEdge, y1 + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    drawListRow(true, items[newIdx].name, y1);
-    int rY0 = min(y0, y1);
-    int rY1 = max(y0 + kRowH - 2, y1 + kRowH - 2);
-    Display::partialUpdate(kEdge, rY0, W - kEdge, rY1);
-}
-
-// Settings action rows: same as generic list but with const char* labels.
-void partialSettingsMove(const ListState &st, int oldIdx, int newIdx) {
-    const int W = Display::width();
-    const int yBase = 56 + 4 * 30 + 14;
-    int oldRow = oldIdx - st.scrollTop;
-    int newRow = newIdx - st.scrollTop;
-    int y0 = yBase + oldRow * kRowH;
-    int y1 = yBase + newRow * kRowH;
-    Display::beginPartialDraw();
-    Paint_DrawRectangle(kEdge, y0, W - kEdge, y0 + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    drawListRow(false, kSettingsActions[oldIdx], y0);
-    Paint_DrawRectangle(kEdge, y1, W - kEdge, y1 + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    drawListRow(true, kSettingsActions[newIdx], y1);
-    int rY0 = min(y0, y1);
-    int rY1 = max(y0 + kRowH - 2, y1 + kRowH - 2);
-    Display::partialUpdate(kEdge, rY0, W - kEdge, rY1);
-}
-
-// To-do rows: clear, then redraw with checkbox glyph + accent bar.
-void partialTodoMove(const ListState &st, int oldIdx, int newIdx) {
-    const int W = Display::width();
-    int oldRow = oldIdx - st.scrollTop;
-    int newRow = newIdx - st.scrollTop;
-    int y0 = kListTop + oldRow * kRowH;
-    int y1 = kListTop + newRow * kRowH;
-    Display::beginPartialDraw();
-
-    // Old row: unselected
-    {
-        Paint_DrawRectangle(kEdge, y0, W - kEdge, y0 + kRowH - 2, WHITE, DOT_PIXEL_1X1,
-                            DRAW_FILL_FULL);
-        int cx = kEdge;
-        Paint_DrawRectangle(cx, y0 + 10, cx + 11, y0 + 21, BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
-        if (todoItems[oldIdx].done) {
-            Paint_DrawLine(cx + 2, y0 + 15, cx + 5, y0 + 18, BLACK, DOT_PIXEL_1X1,
-                           LINE_STYLE_SOLID);
-            Paint_DrawLine(cx + 5, y0 + 18, cx + 9, y0 + 12, BLACK, DOT_PIXEL_1X1,
-                           LINE_STYLE_SOLID);
-        }
-        Paint_DrawString_EN(cx + 18, y0 + 8, todoItems[oldIdx].text.c_str(), &Font16, BLACK, WHITE);
-        Paint_DrawLine(kEdge, y0 + kRowH - 2, W - kEdge, y0 + kRowH - 2, BLACK, DOT_PIXEL_1X1,
-                       LINE_STYLE_SOLID);
-    }
-
-    // New row: selected
-    {
-        Paint_DrawRectangle(kEdge, y1, W - kEdge, y1 + kRowH - 2, WHITE, DOT_PIXEL_1X1,
-                            DRAW_FILL_FULL);
-        Paint_DrawRectangle(8, y1 + 5, 8 + kAccentW, y1 + kRowH - 9, BLACK, DOT_PIXEL_1X1,
-                            DRAW_FILL_FULL);
-        int cx = kEdge + kAccentW + 6;
-        Paint_DrawRectangle(cx, y1 + 10, cx + 11, y1 + 21, BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
-        if (todoItems[newIdx].done) {
-            Paint_DrawLine(cx + 2, y1 + 15, cx + 5, y1 + 18, BLACK, DOT_PIXEL_1X1,
-                           LINE_STYLE_SOLID);
-            Paint_DrawLine(cx + 5, y1 + 18, cx + 9, y1 + 12, BLACK, DOT_PIXEL_1X1,
-                           LINE_STYLE_SOLID);
-        }
-        Paint_DrawString_EN(cx + 18, y1 + 8, todoItems[newIdx].text.c_str(), &Font16, BLACK, WHITE);
-        Paint_DrawLine(kEdge, y1 + kRowH - 2, W - kEdge, y1 + kRowH - 2, BLACK, DOT_PIXEL_1X1,
-                       LINE_STYLE_SOLID);
-    }
-
-    int rY0 = min(y0, y1);
-    int rY1 = max(y0 + kRowH - 2, y1 + kRowH - 2);
-    Display::partialUpdate(kEdge, rY0, W - kEdge, rY1);
-}
-
-// Helpers: check whether scrollTop changed; if so, fall back to full render.
-bool scrollChanged(int oldST, int newST) { return newST != oldST; }
-
-// ---------------------------------------------------------------------------
 // Input handling
 // ---------------------------------------------------------------------------
 
 void handleUp() {
     switch (currentScreen) {
-        case SCREEN_HOME: {
-            int oldSel = homeState.selected;
+        case SCREEN_HOME:
             moveSelection(homeState, -1, kHomeMenuCount);
-            if (homeState.selected == oldSel) break;
-            partialHomeAccent(oldSel, homeState.selected);
+            dirty = true;
             break;
-        }
-        case SCREEN_CARDS: {
-            int oldSel = cardsState.selected, oldST = cardsState.scrollTop;
+        case SCREEN_CARDS:
             moveSelection(cardsState, -1, Storage::cards().size());
-            if (cardsState.selected == oldSel) break;
-            if (scrollChanged(oldST, cardsState.scrollTop)) { dirty = true; break; }
-            partialListMove(cardsState, oldSel, cardsState.selected, Storage::cards());
+            dirty = true;
             break;
-        }
-        case SCREEN_TICKETS: {
-            int oldSel = ticketsState.selected, oldST = ticketsState.scrollTop;
+        case SCREEN_TICKETS:
             moveSelection(ticketsState, -1, Storage::tickets().size());
-            if (ticketsState.selected == oldSel) break;
-            if (scrollChanged(oldST, ticketsState.scrollTop)) { dirty = true; break; }
-            partialListMove(ticketsState, oldSel, ticketsState.selected, Storage::tickets());
+            dirty = true;
             break;
-        }
-        case SCREEN_BOOKS: {
-            int oldSel = booksState.selected, oldST = booksState.scrollTop;
+        case SCREEN_BOOKS:
             moveSelection(booksState, -1, Storage::books().size());
-            if (booksState.selected == oldSel) break;
-            if (scrollChanged(oldST, booksState.scrollTop)) { dirty = true; break; }
-            partialListMove(booksState, oldSel, booksState.selected, Storage::books());
+            dirty = true;
             break;
-        }
-        case SCREEN_TODO: {
-            int oldSel = todoState.selected, oldST = todoState.scrollTop;
+        case SCREEN_TODO:
             moveSelection(todoState, -1, todoItems.size());
-            if (todoState.selected == oldSel) break;
-            if (scrollChanged(oldST, todoState.scrollTop)) { dirty = true; break; }
-            partialTodoMove(todoState, oldSel, todoState.selected);
+            dirty = true;
             break;
-        }
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
                 moveSelection(cardsState, -1, Storage::cards().size());
@@ -856,14 +729,10 @@ void handleUp() {
         case SCREEN_BOOK_READ:
             if (readerFile) showReaderPage(readerPageIndex - 1);
             break;
-        case SCREEN_SETTINGS: {
-            int oldSel = settingsState.selected, oldST = settingsState.scrollTop;
+        case SCREEN_SETTINGS:
             moveSelection(settingsState, -1, kSettingsActionCount);
-            if (settingsState.selected == oldSel) break;
-            if (scrollChanged(oldST, settingsState.scrollTop)) { dirty = true; break; }
-            partialSettingsMove(settingsState, oldSel, settingsState.selected);
+            dirty = true;
             break;
-        }
         default:
             break;
     }
@@ -871,45 +740,26 @@ void handleUp() {
 
 void handleDown() {
     switch (currentScreen) {
-        case SCREEN_HOME: {
-            int oldSel = homeState.selected;
+        case SCREEN_HOME:
             moveSelection(homeState, 1, kHomeMenuCount);
-            if (homeState.selected == oldSel) break;
-            partialHomeAccent(oldSel, homeState.selected);
+            dirty = true;
             break;
-        }
-        case SCREEN_CARDS: {
-            int oldSel = cardsState.selected, oldST = cardsState.scrollTop;
+        case SCREEN_CARDS:
             moveSelection(cardsState, 1, Storage::cards().size());
-            if (cardsState.selected == oldSel) break;
-            if (scrollChanged(oldST, cardsState.scrollTop)) { dirty = true; break; }
-            partialListMove(cardsState, oldSel, cardsState.selected, Storage::cards());
+            dirty = true;
             break;
-        }
-        case SCREEN_TICKETS: {
-            int oldSel = ticketsState.selected, oldST = ticketsState.scrollTop;
+        case SCREEN_TICKETS:
             moveSelection(ticketsState, 1, Storage::tickets().size());
-            if (ticketsState.selected == oldSel) break;
-            if (scrollChanged(oldST, ticketsState.scrollTop)) { dirty = true; break; }
-            partialListMove(ticketsState, oldSel, ticketsState.selected, Storage::tickets());
+            dirty = true;
             break;
-        }
-        case SCREEN_BOOKS: {
-            int oldSel = booksState.selected, oldST = booksState.scrollTop;
+        case SCREEN_BOOKS:
             moveSelection(booksState, 1, Storage::books().size());
-            if (booksState.selected == oldSel) break;
-            if (scrollChanged(oldST, booksState.scrollTop)) { dirty = true; break; }
-            partialListMove(booksState, oldSel, booksState.selected, Storage::books());
+            dirty = true;
             break;
-        }
-        case SCREEN_TODO: {
-            int oldSel = todoState.selected, oldST = todoState.scrollTop;
+        case SCREEN_TODO:
             moveSelection(todoState, 1, todoItems.size());
-            if (todoState.selected == oldSel) break;
-            if (scrollChanged(oldST, todoState.scrollTop)) { dirty = true; break; }
-            partialTodoMove(todoState, oldSel, todoState.selected);
+            dirty = true;
             break;
-        }
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
                 moveSelection(cardsState, 1, Storage::cards().size());
@@ -925,14 +775,10 @@ void handleDown() {
         case SCREEN_BOOK_READ:
             if (readerFile) showReaderPage(readerPageIndex + 1);
             break;
-        case SCREEN_SETTINGS: {
-            int oldSel = settingsState.selected, oldST = settingsState.scrollTop;
+        case SCREEN_SETTINGS:
             moveSelection(settingsState, 1, kSettingsActionCount);
-            if (settingsState.selected == oldSel) break;
-            if (scrollChanged(oldST, settingsState.scrollTop)) { dirty = true; break; }
-            partialSettingsMove(settingsState, oldSel, settingsState.selected);
+            dirty = true;
             break;
-        }
         default:
             break;
     }
