@@ -10,10 +10,9 @@
 #include "GUI_Paint.h"
 #include "fonts.h"
 
-#include <FS.h>
-#include <SD_MMC.h>
 #include <WiFi.h>
 #include <vector>
+#include <cstdio>
 
 namespace {
 
@@ -89,7 +88,7 @@ const char *kSettingsActions[] = {"Rescan SD Card", "Check for Updates", "Wi-Fi 
 const int kSettingsActionCount = sizeof(kSettingsActions) / sizeof(kSettingsActions[0]);
 
 // Book reader state
-File readerFile;
+FILE *readerFile = nullptr;
 std::vector<uint32_t> readerPageOffsets;
 int readerPageIndex = 0;
 String readerTitle;
@@ -360,13 +359,22 @@ std::vector<String> namesOf(const std::vector<ContentItem> &items) {
 // the photo-like content ghost-free.
 // ---------------------------------------------------------------------------
 
+// POSIX existence probe: the Arduino SD_MMC.exists() wrapper double-prefixes
+// the mount point in this core and would report every file as missing.
+bool fileExists(const String &path) {
+    FILE *f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    fclose(f);
+    return true;
+}
+
 void showImage(const char *title, const String &path) {
     Display::beginFrame();
     if (path.length() == 0) {
         Paint_DrawString_EN(14, 60, title, &Font20, BLACK, WHITE);
         Paint_DrawString_EN(14, 96, "No image configured.", &Font16, BLACK, WHITE);
         drawFooter("BOOT back");
-    } else if (!SD_MMC.exists(path)) {
+    } else if (!fileExists(path)) {
         Paint_DrawString_EN(14, 60, title, &Font20, BLACK, WHITE);
         Paint_DrawString_EN(14, 96, "File missing on SD card:", &Font16, BLACK, WHITE);
         Paint_DrawString_EN(14, 120, path.c_str(), &Font12, BLACK, WHITE);
@@ -397,7 +405,7 @@ void drawDuitNowScreen() {
         Paint_DrawString_EN(kEdge, 120, "and set duitnow_qr in manifest.json.", &Font16, BLACK,
                             WHITE);
         drawFooter("BOOT back");
-    } else if (!SD_MMC.exists(path)) {
+    } else if (!fileExists(path)) {
         Paint_DrawString_EN(kEdge, 60, "QR file missing on SD card:", &Font20, BLACK, WHITE);
         Paint_DrawString_EN(kEdge, 100, path.c_str(), &Font12, BLACK, WHITE);
         drawFooter("BOOT back");
@@ -473,8 +481,8 @@ void drawTodoScreen() {
 // E-book reader (plain text, paginated with lazily-discovered page offsets)
 // ---------------------------------------------------------------------------
 
-uint32_t renderBookPage(File &f, uint32_t startOffset) {
-    f.seek(startOffset);
+uint32_t renderBookPage(FILE *f, uint32_t startOffset) {
+    fseek(f, startOffset, SEEK_SET);
     Display::beginFrame();
 
     Paint_DrawString_EN(kEdge, 10, readerTitle.c_str(), &Font16, BLACK, WHITE);
@@ -495,11 +503,11 @@ uint32_t renderBookPage(File &f, uint32_t startOffset) {
     bool eof = false;
 
     while (true) {
-        if (!f.available()) {
+        int c = fgetc(f);
+        if (c == EOF) {
             eof = true;
             break;
         }
-        int c = f.read();
         pos++;
         if (c == '\r') continue;
 
@@ -563,8 +571,8 @@ void showReaderPage(int idx) {
 }
 
 void openBook(const ContentItem &book) {
-    if (readerFile) readerFile.close();
-    readerFile = SD_MMC.open(book.path, FILE_READ);
+    if (readerFile) fclose(readerFile);
+    readerFile = fopen(book.path.c_str(), "r");
     readerTitle = book.name;
     readerPageOffsets.clear();
     readerPageOffsets.push_back(0);
@@ -850,7 +858,8 @@ void handleBack() {
             dirty = true;
             break;
         case SCREEN_BOOK_READ:
-            if (readerFile) readerFile.close();
+            if (readerFile) fclose(readerFile);
+            readerFile = nullptr;
             currentScreen = SCREEN_BOOKS;
             dirty = true;
             break;

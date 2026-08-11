@@ -2,12 +2,10 @@
 #include "config.h"
 
 #include <ArduinoJson.h>
-#include <FS.h>
-#include <SD_MMC.h>
+#include <SD_MMC.h> // only for SD_MMC.begin()/setPins(); all file IO is POSIX
 
-#include "driver/sdmmc_host.h"
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
+#include <dirent.h>
+#include <sys/stat.h>
 
 namespace {
 
@@ -29,11 +27,11 @@ String joinPath(const String &relative) {
     return String(SD_MOUNT_POINT) + "/" + relative;
 }
 
-// The config.h *_PATH constants are relative to the card root (e.g.
-// "/manifest.json"), but the card's VFS is registered under
-// SD_MOUNT_POINT ("/sdcard") - POSIX lookups of a bare "/manifest.json"
-// hit the root VFS and fail. All card access must go through the mount
-// point, exactly like joinPath() does for manifest content entries.
+// All card files are accessed with raw POSIX calls (fopen/fgetc/fwrite):
+// the Arduino SD_MMC wrapper in this core silently prepends its mountpoint
+// to every path, so "/sdcard/manifest.json" becomes "/sdcard/sdcard/..." and
+// always fails. GUI_ReadBmp() uses fopen() too - POSIX is the only path
+// convention that works across this codebase.
 String mountPath(const char *cardRootRelative) {
     return joinPath(cardRootRelative);
 }
@@ -50,28 +48,62 @@ void readItemArray(JsonArrayConst arr, const char *fileKey, std::vector<ContentI
     }
 }
 
+TodoItem parseTodoLine(String line) {
+    line.trim();
+    bool done = false;
+    if (line.startsWith("[x]") || line.startsWith("[X]")) {
+        done = true;
+        line = line.substring(3);
+    } else if (line.startsWith("[ ]")) {
+        done = false;
+        line = line.substring(3);
+    }
+    line.trim();
+    if (line.length() == 0) line = "?";
+    return {line, done};
+}
+
+// Reads a whole small text file (<= 16KB) into a String. ArduinoJson in
+// this version can't deserialize from a FILE*, so small config files are
+// read into RAM first.
+String readAll(FILE *f) {
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size <= 0 || size > 16384) return String();
+    char *buf = (char *)malloc(size + 1);
+    if (!buf) return String();
+    size_t got = fread(buf, 1, size, f);
+    buf[got] = '\0';
+    String s = String(buf);
+    free(buf);
+    return s;
+}
+
 // Diagnostic: print every entry in the card root with its exact byte length
 // and type. Windows can hide trailing spaces/unicode look-alikes in file
 // names; this shows exactly what the device's VFS sees. Note the trailing
 // slash: ESP-IDF's VFS refuses to open the mount point itself ("/sdcard"),
 // but "/sdcard/" lists the directory.
 void dumpCardRoot() {
-    File root = SD_MMC.open(String(SD_MOUNT_POINT) + "/");
-    if (!root || !root.isDirectory()) {
+    String rootPath = String(SD_MOUNT_POINT) + "/";
+    DIR *d = opendir(rootPath.c_str());
+    if (!d) {
         Serial.println("Storage: could not open card root directory");
         return;
     }
-    File entry = root.openNextFile();
+    struct dirent *e;
     int n = 0;
-    while (entry) {
-        const char *name = entry.name();
-        const char *slash = strrchr(name, '/');
-        const char *base = slash ? slash + 1 : name;
-        Serial.printf("Storage: root[%d] len=%u '%s' %s %u bytes\n", n, (unsigned)strlen(base),
-                      base, entry.isDirectory() ? "DIR" : "FILE", (unsigned)entry.size());
-        entry = root.openNextFile();
+    while ((e = readdir(d)) != nullptr) {
+        char full[160];
+        snprintf(full, sizeof(full), "%s/%s", SD_MOUNT_POINT, e->d_name);
+        struct stat st;
+        bool isDir = (stat(full, &st) == 0 && S_ISDIR(st.st_mode));
+        Serial.printf("Storage: root[%d] len=%u '%s' %s\n", n, (unsigned)strlen(e->d_name),
+                      e->d_name, isDir ? "DIR" : "FILE");
         n++;
     }
+    closedir(d);
     if (n == 0) Serial.println("Storage: card root is EMPTY");
 }
 
@@ -111,25 +143,21 @@ bool loadManifest() {
 
     if (!mounted) return false;
 
-    errno = 0;
-    int fd = ::open(mountPath(MANIFEST_PATH).c_str(), O_RDONLY);
-    if (fd < 0) {
-        Serial.printf("Storage::loadManifest: open %s errno=%d (%s)\n",
-                      mountPath(MANIFEST_PATH).c_str(), errno, strerror(errno));
+    FILE *f = fopen(mountPath(MANIFEST_PATH).c_str(), "r");
+    if (!f) {
+        Serial.printf("Storage::loadManifest: could not open %s (errno %d)\n",
+                      mountPath(MANIFEST_PATH).c_str(), errno);
         return false;
     }
-    ::close(fd);
-
-    File f = SD_MMC.open(mountPath(MANIFEST_PATH), FILE_READ);
-    if (!f) {
-        Serial.printf("Storage::loadManifest: SD_MMC open failed for %s\n",
-                      mountPath(MANIFEST_PATH).c_str());
+    String content = readAll(f);
+    fclose(f);
+    if (content.length() == 0) {
+        Serial.println("Storage::loadManifest: manifest.json empty or too large");
         return false;
     }
 
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
+    DeserializationError err = deserializeJson(doc, content.c_str());
     if (err) {
         Serial.printf("Storage::loadManifest: JSON parse error: %s\n", err.c_str());
         return false;
@@ -176,45 +204,45 @@ std::vector<TodoItem> loadTodo() {
     std::vector<TodoItem> items;
     if (!mounted) return items;
 
-    File f = SD_MMC.open(mountPath(TODO_PATH), FILE_READ);
+    FILE *f = fopen(mountPath(TODO_PATH).c_str(), "r");
     if (!f) return items;
 
-    while (f.available()) {
-        String line = f.readStringUntil('\n');
-        line.trim();
-        if (line.length() == 0) continue;
-
-        bool done = false;
-        if (line.startsWith("[x]") || line.startsWith("[X]")) {
-            done = true;
-            line = line.substring(3);
-        } else if (line.startsWith("[ ]")) {
-            done = false;
-            line = line.substring(3);
+    String line;
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        if (c == '\n') {
+            if (line.length() > 0) {
+                items.push_back(parseTodoLine(line));
+                line = "";
+            }
+        } else if (c != '\r') {
+            line += (char)c;
         }
-        line.trim();
-        if (line.length() == 0) continue;
-
-        items.push_back({line, done});
     }
-    f.close();
+    if (line.length() > 0) items.push_back(parseTodoLine(line));
+    fclose(f);
     return items;
 }
 
 bool loadWifiCredentials(String &ssid, String &password) {
     if (!mounted) return false;
 
-    File f = SD_MMC.open(mountPath(WIFI_CONFIG_PATH), FILE_READ);
+    FILE *f = fopen(mountPath(WIFI_CONFIG_PATH).c_str(), "r");
     if (!f) {
         Serial.printf("Storage::loadWifiCredentials: could not open %s (copy "
                        "wifi.json.example from sdcard-template/ and fill it in)\n",
                        mountPath(WIFI_CONFIG_PATH).c_str());
         return false;
     }
+    String content = readAll(f);
+    fclose(f);
+    if (content.length() == 0) {
+        Serial.println("Storage::loadWifiCredentials: wifi.json empty or too large");
+        return false;
+    }
 
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
+    DeserializationError err = deserializeJson(doc, content.c_str());
     if (err) {
         Serial.printf("Storage::loadWifiCredentials: JSON parse error: %s\n", err.c_str());
         return false;
@@ -234,14 +262,13 @@ bool loadWifiCredentials(String &ssid, String &password) {
 bool saveTodo(const std::vector<TodoItem> &items) {
     if (!mounted) return false;
 
-    File f = SD_MMC.open(mountPath(TODO_PATH), FILE_WRITE);
+    FILE *f = fopen(mountPath(TODO_PATH).c_str(), "w");
     if (!f) return false;
 
     for (const auto &item : items) {
-        f.print(item.done ? "[x] " : "[ ] ");
-        f.println(item.text);
+        fprintf(f, "%s%s\n", item.done ? "[x] " : "[ ] ", item.text.c_str());
     }
-    f.close();
+    fclose(f);
     return true;
 }
 
