@@ -50,16 +50,21 @@ docs/                       HARDWARE.md, OTA.md, CONTENT.md
 
 Full pinout and rationale: [docs/HARDWARE.md](docs/HARDWARE.md).
 
-### 2. Prepare the microSD card
+### 2. Wi-Fi (only needed for OTA - everything else works offline)
+
+No SD card or cable needed for this part: on the device, go to
+**Settings > Wi-Fi Setup**, connect to the `StackWallet-Setup` hotspot it
+starts from your phone, and enter your network details on the page that
+opens. See [docs/CONTENT.md](docs/CONTENT.md#wi-fi-credentials) for what
+that flow looks like and its tradeoffs, and for the alternative SD-card
+`wifi.json` method if you'd rather set it that way.
+
+### 3. Prepare the microSD card
 
 Copy [`sdcard-template/`](sdcard-template) onto the card, then fill it in:
 
 ```sh
 pip install -r tools/requirements.txt
-
-# Wi-Fi (only needed for OTA - everything else works offline)
-cp sdcard-template/wifi.json.example sdcard-template/wifi.json
-# edit sdcard-template/wifi.json with your real ssid/password
 
 # A loyalty card
 python tools/make_bmp.py barcode 012345678905 sdcard-template/cards/starbucks.bmp \
@@ -73,7 +78,7 @@ Then copy the whole `sdcard-template/` folder onto the card. Full details,
 including flight tickets, the DuitNow QR, and e-books:
 [docs/CONTENT.md](docs/CONTENT.md).
 
-### 3. Push firmware changes from GitHub
+### 4. Push firmware changes from GitHub
 
 Once the first build is on the device and Wi-Fi is configured, further
 firmware changes just need `git push` to `main`:

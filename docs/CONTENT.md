@@ -110,13 +110,31 @@ is a planned follow-up (see the README roadmap).
 
 ## Wi-Fi credentials
 
-Copy `sdcard-template/wifi.json.example` to `wifi.json` on the card root
-and fill in your network:
+Only needed for OTA checks (see [OTA.md](OTA.md)) - cards, tickets, the
+to-do list, the QR code, and the e-book reader all work with no Wi-Fi at
+all.
+
+**On-device (no SD card needed):** on the device, go to **Settings > Wi-Fi
+Setup**. It hosts a temporary open Wi-Fi hotspot named `StackWallet-Setup`;
+connect to it from your phone or laptop, and a setup page should open
+automatically (or browse to `http://192.168.4.1` if it doesn't). Enter your
+network name and password there. Credentials are saved to the ESP32's
+internal flash (NVS) - they survive OTA updates the same way SD-card
+credentials would, they're never included in the compiled firmware, and no
+SD card is involved at all. Press BOOT to cancel out of setup mode.
+
+That AP is unauthenticated and the page posts over plain HTTP within it, so
+only run setup somewhere you're comfortable with a brief open local
+network - fine for "device in your hand, phone in the other," not for
+leaving the portal open unattended.
+
+**Or on the SD card, if you prefer:** copy `sdcard-template/wifi.json.example`
+to `wifi.json` on the card root and fill in your network:
 
 ```json
 {"ssid": "your-wifi-name", "password": "your-wifi-password"}
 ```
 
-Only needed for OTA checks (see [OTA.md](OTA.md)) - cards, tickets, the
-to-do list, the QR code, and the e-book reader all work with no Wi-Fi at
-all.
+If both exist, the on-device NVS credentials (from Wi-Fi Setup, or migrated
+from a previous SD-card `wifi.json`) take priority; the SD card is only
+consulted when NVS has nothing saved yet.

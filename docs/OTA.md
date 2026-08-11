@@ -47,10 +47,12 @@ Early on it's tempting to `#define WIFI_SSID "..."` in a gitignored
    built without them would leave the device unable to reach Wi-Fi at all,
    permanently cutting off future OTA checks too.
 
-Instead, Wi-Fi credentials live in `/sdcard/wifi.json` (see
-[CONTENT.md](CONTENT.md)). The SD card is never touched by an OTA update,
-so credentials survive every update, and they never appear in a compiled
-binary or in git.
+Instead, Wi-Fi credentials live either in the ESP32's internal NVS flash
+(entered via **Settings > Wi-Fi Setup** on the device - see
+[CONTENT.md](CONTENT.md#wi-fi-credentials)) or in `/sdcard/wifi.json`. OTA
+only rewrites the app partition - it never touches NVS or the SD card -
+so either way credentials survive every update, and neither ends up in a
+compiled binary or in git.
 
 ## Partition table
 

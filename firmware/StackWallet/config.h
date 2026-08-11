@@ -67,3 +67,11 @@
 // ---------------------------------------------------------------------------
 #define DISPLAY_ROTATE 90   // GUI_Paint.h ROTATE_90
 #define DISPLAY_MIRROR 0x00 // GUI_Paint.h MIRROR_NONE (0x03 = MIRROR_ORIGIN)
+
+// ---------------------------------------------------------------------------
+// Wi-Fi setup portal (Settings > Wi-Fi Setup): a temporary open AP + web
+// page for entering credentials from a phone with no SD card or cable
+// needed. See wifi_provision.h for where credentials end up stored.
+// ---------------------------------------------------------------------------
+#define WIFI_SETUP_AP_SSID "StackWallet-Setup"
+#define WIFI_SETUP_TIMEOUT_MS (5UL * 60UL * 1000UL) // 5 minutes

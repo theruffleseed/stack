@@ -7,6 +7,7 @@
 #include "storage.h"
 #include "ui.h"
 #include "version.h"
+#include "wifi_provision.h"
 
 #include <WiFi.h>
 
@@ -14,10 +15,18 @@ namespace {
 
 void connectWiFi(unsigned long timeoutMs) {
     String ssid, password;
-    if (!Storage::loadWifiCredentials(ssid, password)) {
-        Serial.println("No usable /sdcard/wifi.json - staying offline "
-                        "(cards/tickets/todo/reader still work; only OTA needs Wi-Fi)");
-        return;
+    if (!WifiProvision::load(ssid, password)) {
+        // No saved credentials in NVS yet. Fall back to /sdcard/wifi.json
+        // if present, and migrate it into NVS so future boots don't need
+        // the SD card for this at all.
+        if (Storage::loadWifiCredentials(ssid, password)) {
+            WifiProvision::save(ssid, password);
+        } else {
+            Serial.println("No saved Wi-Fi credentials (Settings > Wi-Fi Setup, or "
+                            "/sdcard/wifi.json) - staying offline (cards/tickets/todo/reader "
+                            "still work; only OTA needs Wi-Fi)");
+            return;
+        }
     }
 
     WiFi.mode(WIFI_STA);

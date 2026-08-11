@@ -4,6 +4,7 @@
 #include "ota.h"
 #include "storage.h"
 #include "version.h"
+#include "wifi_provision.h"
 
 #include "GUI_BMPfile.h"
 #include "GUI_Paint.h"
@@ -96,8 +97,11 @@ struct ListState {
     int scrollTop = 0;
 };
 
-ListState homeState, cardsState, ticketsState, booksState, todoState;
+ListState homeState, cardsState, ticketsState, booksState, todoState, settingsState;
 std::vector<TodoItem> todoItems;
+
+const char *kSettingsActions[] = {"Check for Updates", "Wi-Fi Setup"};
+const int kSettingsActionCount = sizeof(kSettingsActions) / sizeof(kSettingsActions[0]);
 
 // Book reader state
 File readerFile;
@@ -355,9 +359,21 @@ void drawSettingsScreen() {
 
     line = String("OTA: ") + OTA::lastCheckStatus();
     Paint_DrawString_EN(10, y, line.c_str(), &Font16, BLACK, WHITE);
-    y += lineH;
+    y += lineH + 10;
 
-    Paint_DrawString_EN(10, Display::height() - 20, "SELECT check for updates now  BOOT back",
+    int rowH = Font16.Height + 14;
+    for (int i = 0; i < kSettingsActionCount; i++) {
+        int ry = y + i * rowH;
+        bool isSel = (i == settingsState.selected);
+        if (isSel) {
+            Paint_DrawRectangle(5, ry, Display::width() - 5, ry + rowH - 4, BLACK, DOT_PIXEL_1X1,
+                                 DRAW_FILL_FULL);
+        }
+        Paint_DrawString_EN(15, ry + 6, kSettingsActions[i], &Font16, isSel ? WHITE : BLACK,
+                             isSel ? BLACK : WHITE);
+    }
+
+    Paint_DrawString_EN(10, Display::height() - 20, "UP/DOWN move  SELECT choose  BOOT back",
                          &Font12, BLACK, WHITE);
     Display::endFrame(true);
 }
@@ -457,6 +473,10 @@ void handleUp() {
         case SCREEN_BOOK_READ:
             if (readerFile) showReaderPage(readerPageIndex - 1);
             break;
+        case SCREEN_SETTINGS:
+            moveSelection(settingsState, -1, kSettingsActionCount);
+            dirty = true;
+            break;
         default:
             break;
     }
@@ -499,6 +519,10 @@ void handleDown() {
         case SCREEN_BOOK_READ:
             if (readerFile) showReaderPage(readerPageIndex + 1);
             break;
+        case SCREEN_SETTINGS:
+            moveSelection(settingsState, 1, kSettingsActionCount);
+            dirty = true;
+            break;
         default:
             break;
     }
@@ -537,9 +561,12 @@ void handleSelect() {
             }
             break;
         case SCREEN_SETTINGS:
-            drawSettingsScreen(); // show "checking..." implicitly via serial; screen updates after
-            OTA::checkAndApplyNow();
-            dirty = true; // reflects updated lastCheckStatus() (no-op if OTA rebooted already)
+            if (settingsState.selected == 0) {
+                OTA::checkAndApplyNow(); // reboots on success; falls through to redraw on failure
+            } else {
+                WifiProvision::runSetupPortal();
+            }
+            dirty = true;
             break;
         default:
             break;
