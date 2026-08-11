@@ -5,6 +5,10 @@
 #include <FS.h>
 #include <SD_MMC.h>
 
+#include "driver/sdmmc_host.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+
 namespace {
 
 bool mounted = false;
@@ -37,14 +41,39 @@ void readItemArray(JsonArrayConst arr, const char *fileKey, std::vector<ContentI
 namespace Storage {
 
 bool begin() {
-    SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
-    // mode1bit=true matches Waveshare's own verified 05_SD_Test example for
-    // this board, even though all 4 data pins are wired.
-    mounted = SD_MMC.begin(SD_MOUNT_POINT, /*mode1bit=*/true);
-    if (!mounted) {
-        Serial.println("Storage::begin: SD_MMC.begin() failed");
+    // Mount via the ESP-IDF SDMMC layer directly (same driver Arduino's
+    // SD_MMC wrapper uses) so we can report *why* a card isn't mounting
+    // instead of a bare "failed" - the reason in Serial tells us whether
+    // it's a missing card, a bad contact, or an unsupported filesystem.
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 1; // 1-bit mode: matches Waveshare's verified 05_SD_Test config
+    slot.clk = (gpio_num_t)SD_CLK_PIN;
+    slot.cmd = (gpio_num_t)SD_CMD_PIN;
+    slot.d0 = (gpio_num_t)SD_D0_PIN;
+    slot.d1 = (gpio_num_t)SD_D1_PIN;
+    slot.d2 = (gpio_num_t)SD_D2_PIN;
+    slot.d3 = (gpio_num_t)SD_D3_PIN;
+
+    esp_vfs_fat_sdmmc_mount_config_t mountConfig = {};
+    mountConfig.format_if_mount_failed = false;
+    mountConfig.max_files = 8;
+    mountConfig.allocation_unit_size = 16 * 1024;
+
+    sdmmc_card_t *card = nullptr;
+    esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &host, &slot, &mountConfig, &card);
+    if (ret != ESP_OK) {
+        mounted = false;
+        Serial.printf("Storage::begin: SD mount failed: %s\n", esp_err_to_name(ret));
+        return false;
     }
-    return mounted;
+
+    mounted = true;
+    sdmmc_card_print_info(stdout, card);
+    Serial.printf("Storage::begin: mounted at %s\n", SD_MOUNT_POINT);
+    return true;
 }
 
 bool isMounted() {

@@ -85,7 +85,7 @@ struct ListState {
 ListState homeState, cardsState, ticketsState, booksState, todoState, settingsState;
 std::vector<TodoItem> todoItems;
 
-const char *kSettingsActions[] = {"Check for Updates", "Wi-Fi Setup"};
+const char *kSettingsActions[] = {"Rescan SD Card", "Check for Updates", "Wi-Fi Setup"};
 const int kSettingsActionCount = sizeof(kSettingsActions) / sizeof(kSettingsActions[0]);
 
 // Book reader state
@@ -810,6 +810,17 @@ void handleSelect() {
             break;
         case SCREEN_SETTINGS:
             if (settingsState.selected == 0) {
+                // Rescan SD card: retry the mount (hot-plug fix) and reload content
+                bool wasMounted = Storage::isMounted();
+                if (!Storage::isMounted()) {
+                    Storage::begin();
+                }
+                if (Storage::isMounted()) {
+                    Storage::loadManifest();
+                    todoItems = Storage::loadTodo();
+                }
+                if (!wasMounted) dirty = true; // settings info shows the new SD state
+            } else if (settingsState.selected == 1) {
                 OTA::checkAndApplyNow(); // reboots on success; falls through to redraw on failure
                 // Partial update just the OTA row instead of a full screen flash
                 const int rowY = 56 + 3 * 30;
@@ -856,10 +867,27 @@ void handleBack() {
 
 bool asleep = false;
 unsigned long lastActivityMs = 0;
+unsigned long lastMountAttemptMs = 0;
 
 void markActivity() {
     lastActivityMs = millis();
     if (asleep) asleep = false;
+}
+
+// The SD slot has no hot-plug detection: if the card isn't there (or isn't
+// fully seated) when the firmware boots, it stays unmounted. Keep retrying
+// quietly in the background so a card can be inserted/re-seated later and
+// picked up without a reboot.
+void retryMount() {
+    if (Storage::isMounted()) return;
+    if (millis() - lastMountAttemptMs < 3000) return;
+    lastMountAttemptMs = millis();
+    if (Storage::begin()) {
+        Storage::loadManifest();
+        todoItems = Storage::loadTodo();
+        dirty = true;
+        Serial.println("UI: SD card mounted (hot-plug)");
+    }
 }
 
 void checkIdleSleep() {
@@ -922,6 +950,7 @@ void loop() {
         dirty = false;
     }
 
+    retryMount();
     checkIdleSleep();
 }
 

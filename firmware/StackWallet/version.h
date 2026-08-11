@@ -9,4 +9,4 @@
 // that release's tag (e.g. "v0.1.3") so local builds identify themselves
 // correctly and don't try to OTA-reflash the same version back onto the
 // device. Bump it whenever you pull new code from main.
-#define STACK_WALLET_VERSION "v0.1.4"
+#define STACK_WALLET_VERSION "v0.1.5"
