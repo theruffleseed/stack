@@ -2,5 +2,6 @@
   "cards": [],
   "tickets": [],
   "books": [],
-  "duitnow_qr": ""
+  "duitnow_qr": "qr/duitnow.bmp",
+  "duitnow_label": "Ken"
 }

@@ -75,3 +75,11 @@
 // ---------------------------------------------------------------------------
 #define WIFI_SETUP_AP_SSID "StackWallet-Setup"
 #define WIFI_SETUP_TIMEOUT_MS (5UL * 60UL * 1000UL) // 5 minutes
+
+// ---------------------------------------------------------------------------
+// Power: after this long without any button press the panel is put into deep
+// sleep (near-zero draw; the e-ink image persists). Any button wakes it.
+// ---------------------------------------------------------------------------
+#ifndef IDLE_SLEEP_MS
+#define IDLE_SLEEP_MS (60UL * 1000UL) // 60 seconds
+#endif

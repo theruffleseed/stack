@@ -6,6 +6,8 @@
 namespace {
 UBYTE *frameBuffer = nullptr;
 UDOUBLE frameBufferSize = 0;
+int fastRefreshesSinceClean = 0;
+const int kFastRefreshesBeforeClean = 5;
 } // namespace
 
 namespace Display {
@@ -47,11 +49,19 @@ void beginFrame() {
     Paint_Clear(WHITE);
 }
 
+void beginPartialDraw() {
+    Paint_SelectImage(frameBuffer);
+}
+
 void endFrame(bool fast) {
+    if (fast && ++fastRefreshesSinceClean >= kFastRefreshesBeforeClean) {
+        fast = false; // enough quick updates; clear the ghosting with a clean refresh
+    }
     if (fast) {
         EPD_3IN97_Init_Fast();
         EPD_3IN97_Display_Fast(frameBuffer);
     } else {
+        fastRefreshesSinceClean = 0;
         EPD_3IN97_Init();
         EPD_3IN97_Display_Base(frameBuffer);
     }

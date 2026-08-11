@@ -39,7 +39,8 @@ exactly the right format and dimensions.
   "books": [
     {"name": "Atomic Habits", "file": "books/atomic_habits.txt"}
   ],
-  "duitnow_qr": "qr/duitnow.bmp"
+  "duitnow_qr": "qr/duitnow.bmp",
+  "duitnow_label": "Ken"
 }
 ```
 
@@ -53,7 +54,8 @@ python tools/build_manifest.py /path/to/your/sdcard-folder
 
 Item names come from file names (`starbucks_rewards.bmp` ->
 "Starbucks Rewards") - rename files for nicer on-screen labels, or
-hand-edit `manifest.json` afterward.
+hand-edit `manifest.json` afterward. `duitnow_label` (optional) is the
+account name shown under the DuitNow QR on the receive screen.
 
 ## Generating card / ticket / QR images
 
@@ -76,6 +78,12 @@ python tools/make_bmp.py image boarding-pass-screenshot.png sdcard-template/tick
 # A static "receive funds" QR (e.g. a DuitNow payload string)
 python tools/make_bmp.py qr "00020101021226..." sdcard-template/qr/duitnow.bmp \
   --label "Scan to pay"
+
+# Convert a photo/screenshot of an existing QR (the receive screen draws a
+# title and a scan hint over the --top/--bottom white bands, so reserve them;
+# --crop trims the source image first if it has extra border/logo area)
+python tools/make_bmp.py image KenQR.jpeg sdcard-template/qr/duitnow.bmp \
+  --margin 40 --top 90 --bottom 85
 ```
 
 `--type` accepts any [python-barcode](https://python-barcode.readthedocs.io/)

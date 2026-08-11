@@ -18,9 +18,17 @@ void fullClear();
 // (does not touch the panel). Call before drawing a new screen.
 void beginFrame();
 
+// Selects the frame buffer for drawing WITHOUT clearing it, so a small
+// region can be redrawn in RAM and pushed with partialUpdate(). Use only
+// after beginFrame() + endFrame() have left the buffer holding the current
+// screen; draw only inside the region you will update.
+void beginPartialDraw();
+
 // Pushes the frame buffer to the panel. `fast` uses the panel's quick LUT
 // (a couple hundred ms, minor ghosting); pass false for a clean full-quality
-// refresh (~1-2s) after several fast refreshes to clear ghosting.
+// refresh (~1-2s) after several fast refreshes to clear ghosting. Every
+// FAST_REFRESHES_BEFORE_CLEAN consecutive fast refreshes, a clean refresh
+// is forced automatically.
 void endFrame(bool fast = true);
 
 // Partial refresh of a sub-rectangle of the current frame buffer content.

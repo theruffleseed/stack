@@ -74,21 +74,6 @@ enum Screen {
     SCREEN_SETTINGS,
 };
 
-struct MenuEntry {
-    const char *label;
-    Screen target;
-};
-
-const MenuEntry kHomeMenu[] = {
-    {"Loyalty Cards", SCREEN_CARDS},
-    {"Flight Tickets", SCREEN_TICKETS},
-    {"To-Do List", SCREEN_TODO},
-    {"Receive (DuitNow QR)", SCREEN_QR},
-    {"E-Book Reader", SCREEN_BOOKS},
-    {"Settings", SCREEN_SETTINGS},
-};
-const int kHomeMenuCount = sizeof(kHomeMenu) / sizeof(kHomeMenu[0]);
-
 Screen currentScreen = SCREEN_HOME;
 bool dirty = true;
 
@@ -109,9 +94,31 @@ std::vector<uint32_t> readerPageOffsets;
 int readerPageIndex = 0;
 String readerTitle;
 
+// ---------------------------------------------------------------------------
+// Layout metrics (480x800 portrait, 1-bit). All screens share these so the
+// whole UI reads as one system.
+// ---------------------------------------------------------------------------
+
+const int kHeaderH = 44;   // black title band at the top of list screens
+const int kFooterH = 26;   // hint line + rule at the bottom
+const int kRowH = 34;      // standard list row (Font16 + padding)
+const int kListTop = kHeaderH + 12;
+const int kEdge = 14;      // horizontal margin used by headers/footers/rows
+
+int textWidth(const char *s, const sFONT &font) {
+    return strlen(s) * font.Width;
+}
+
+int textWidth(const String &s, const sFONT &font) {
+    return s.length() * font.Width;
+}
+
+int centerX(const char *s, const sFONT &font) {
+    return max(0, (Display::width() - textWidth(s, font)) / 2);
+}
+
 int visibleRows() {
-    int rowH = Font16.Height + 14;
-    return max(1, (Display::height() - 50) / rowH);
+    return max(1, (Display::height() - kListTop - kFooterH) / kRowH);
 }
 
 void clampSelection(ListState &st, int count) {
@@ -134,36 +141,205 @@ void moveSelection(ListState &st, int delta, int count) {
 }
 
 // ---------------------------------------------------------------------------
-// Generic list rendering, used for the home menu, cards, tickets, books.
+// Shared chrome: header band, footer hint line
 // ---------------------------------------------------------------------------
 
-void drawListScreen(const char *title, const std::vector<String> &items, const ListState &st,
-                     const char *emptyMessage, const char *footer) {
+void drawHeader(const char *title) {
+    Paint_DrawRectangle(0, 0, Display::width() - 1, kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
+                        DRAW_FILL_FULL);
+    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, WHITE, BLACK);
+}
+
+void drawFooter(const char *hint) {
+    const int fy = Display::height() - kFooterH;
+    Paint_DrawLine(0, fy, Display::width(), fy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    Paint_DrawString_EN(kEdge, fy + 5, hint, &Font12, BLACK, WHITE);
+}
+
+// ---------------------------------------------------------------------------
+// Home menu: wordmark, live status line, icon menu rows
+// ---------------------------------------------------------------------------
+
+enum HomeIcon {
+    ICON_CARD,
+    ICON_TICKET,
+    ICON_TODO,
+    ICON_QR,
+    ICON_BOOK,
+    ICON_SETTINGS,
+};
+
+struct HomeEntry {
+    const char *label;
+    const char *caption;
+    HomeIcon icon;
+    Screen target;
+};
+
+const HomeEntry kHomeMenu[] = {
+    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
+    {"Flight Tickets", "Boarding passes", ICON_TICKET, SCREEN_TICKETS},
+    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
+    {"DuitNow QR", "Receive money", ICON_QR, SCREEN_QR},
+    {"E-Book Reader", "Read from the card", ICON_BOOK, SCREEN_BOOKS},
+    {"Settings", "Wi-Fi, updates, info", ICON_SETTINGS, SCREEN_SETTINGS},
+};
+const int kHomeMenuCount = sizeof(kHomeMenu) / sizeof(kHomeMenu[0]);
+
+// Geometric glyphs drawn in a 32x32 box. `c` is the foreground color, so the
+// same drawing code works on white (normal) and black (selected) rows.
+void drawIcon(HomeIcon icon, int x, int y, UWORD c) {
+    const UWORD bg = (c == WHITE) ? BLACK : WHITE; // to punch holes in fills
+    switch (icon) {
+        case ICON_CARD:
+            Paint_DrawRectangle(x + 2, y + 5, x + 29, y + 26, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawRectangle(x + 6, y + 8, x + 13, y + 13, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawLine(x + 5, y + 18, x + 26, y + 18, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 8, y + 21, x + 14, y + 21, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            break;
+        case ICON_TICKET:
+            Paint_DrawRectangle(x + 2, y + 4, x + 29, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawLine(x + 19, y + 4, x + 19, y + 27, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 17, y + 2, x + 21, y + 5, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawRectangle(x + 17, y + 26, x + 21, y + 29, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            break;
+        case ICON_TODO:
+            Paint_DrawRectangle(x + 4, y + 4, x + 27, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawLine(x + 7, y + 16, x + 13, y + 22, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 13, y + 22, x + 24, y + 9, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            break;
+        case ICON_QR: {
+            // Three finder patterns (ring + solid center) + module dots.
+            auto finder = [&](int fx, int fy) {
+                Paint_DrawRectangle(fx, fy, fx + 7, fy + 7, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+                Paint_DrawRectangle(fx + 1, fy + 1, fx + 6, fy + 6, bg, DOT_PIXEL_1X1,
+                                    DRAW_FILL_FULL);
+                Paint_DrawRectangle(fx + 2, fy + 2, fx + 5, fy + 5, c, DOT_PIXEL_1X1,
+                                    DRAW_FILL_FULL);
+            };
+            finder(x + 2, y + 2);
+            finder(x + 22, y + 2);
+            finder(x + 2, y + 22);
+            Paint_DrawRectangle(x + 14, y + 14, x + 15, y + 15, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawRectangle(x + 19, y + 11, x + 20, y + 12, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawRectangle(x + 24, y + 24, x + 25, y + 25, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            break;
+        }
+        case ICON_BOOK:
+            Paint_DrawRectangle(x + 3, y + 5, x + 28, y + 26, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawLine(x + 8, y + 5, x + 8, y + 26, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 12, y + 10, x + 25, y + 10, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 12, y + 14, x + 25, y + 14, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 12, y + 18, x + 25, y + 18, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            break;
+        case ICON_SETTINGS:
+            Paint_DrawLine(x + 3, y + 8, x + 28, y + 8, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 11, y + 5, x + 16, y + 11, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawLine(x + 3, y + 16, x + 28, y + 16, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 20, y + 13, x + 25, y + 19, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawLine(x + 3, y + 24, x + 28, y + 24, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 7, y + 21, x + 12, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            break;
+    }
+}
+
+String homeStatusLine() {
+    String s;
+    if (WiFi.status() == WL_CONNECTED) {
+        s = "Wi-Fi " + WiFi.localIP().toString();
+    } else {
+        s = "Wi-Fi off";
+    }
+    s += "   ";
+    s += Storage::isMounted() ? "SD on" : "SD missing";
+    s += "   FW ";
+    s += STACK_WALLET_VERSION;
+    return s;
+}
+
+void drawHomeScreen() {
+    const int W = Display::width();
+    const int H = Display::height();
     Display::beginFrame();
 
-    Paint_DrawRectangle(0, 0, Display::width() - 1, 40, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    Paint_DrawString_EN(10, 8, title, &Font20, WHITE, BLACK);
+    // Wordmark
+    Paint_DrawString_EN(centerX("STACK WALLET", Font24), 20, "STACK WALLET", &Font24, BLACK,
+                        WHITE);
+
+    // Live status line (Wi-Fi / SD / firmware)
+    String status = homeStatusLine();
+    Paint_DrawString_EN(centerX(status.c_str(), Font12), 20 + Font24.Height + 8, status.c_str(),
+                        &Font12, BLACK, WHITE);
+
+    // Divider between the masthead and the menu
+    Paint_DrawLine(24, 76, W - 24, 76, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+
+    // Menu rows: icon + label + caption + chevron; selected row inverted.
+    const int rowH = 74;
+    const int y0 = 86;
+    for (int i = 0; i < kHomeMenuCount; i++) {
+        const int y = y0 + i * rowH;
+        const bool sel = (i == homeState.selected);
+        const UWORD fg = sel ? WHITE : BLACK;
+        const UWORD bg = sel ? BLACK : WHITE;
+
+        if (sel) {
+            Paint_DrawRectangle(8, y, W - 8, y + rowH - 8, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        }
+
+        drawIcon(kHomeMenu[i].icon, 18, y + (rowH - 8 - 32) / 2, fg);
+        Paint_DrawString_EN(64, y + 12, kHomeMenu[i].label, &Font20, fg, bg);
+        Paint_DrawString_EN(64, y + 12 + Font20.Height + 5, kHomeMenu[i].caption, &Font12, fg, bg);
+
+        // Chevron
+        const int cy = y + (rowH - 8) / 2;
+        Paint_DrawLine(W - 34, cy - 6, W - 26, cy, fg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(W - 34, cy + 6, W - 26, cy, fg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+
+        // Row separator (below the selection fill, so it stays visible)
+        if (i < kHomeMenuCount - 1) {
+            Paint_DrawLine(8, y + rowH - 4, W - 8, y + rowH - 4, BLACK, DOT_PIXEL_1X1,
+                           LINE_STYLE_SOLID);
+        }
+    }
+
+    drawFooter("UP/DOWN move   SELECT open");
+    Display::endFrame(true);
+}
+
+// ---------------------------------------------------------------------------
+// Generic list rendering, used for the cards, tickets, books menus.
+// ---------------------------------------------------------------------------
+
+void drawListRow(bool sel, const String &text, int y) {
+    const int W = Display::width();
+    if (sel) {
+        Paint_DrawRectangle(8, y, W - 8, y + kRowH - 4, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        Paint_DrawString_EN(kEdge, y + 8, text.c_str(), &Font16, WHITE, BLACK);
+    } else {
+        Paint_DrawString_EN(kEdge, y + 8, text.c_str(), &Font16, BLACK, WHITE);
+        Paint_DrawLine(kEdge, y + kRowH - 2, W - kEdge, y + kRowH - 2, BLACK, DOT_PIXEL_1X1,
+                       LINE_STYLE_SOLID);
+    }
+}
+
+void drawListScreen(const char *title, const std::vector<String> &items, const ListState &st,
+                    const char *emptyMessage, const char *footer) {
+    Display::beginFrame();
+    drawHeader(title);
 
     if (items.empty()) {
-        Paint_DrawString_EN(10, 60, emptyMessage, &Font16, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, kListTop, emptyMessage, &Font16, BLACK, WHITE);
     } else {
-        int rowH = Font16.Height + 14;
         int rows = visibleRows();
         for (int i = 0; i < rows; i++) {
             int idx = st.scrollTop + i;
             if (idx >= (int)items.size()) break;
-            int y = 50 + i * rowH;
-            bool isSel = (idx == st.selected);
-            if (isSel) {
-                Paint_DrawRectangle(5, y, Display::width() - 5, y + rowH - 4, BLACK, DOT_PIXEL_1X1,
-                                     DRAW_FILL_FULL);
-            }
-            Paint_DrawString_EN(15, y + 6, items[idx].c_str(), &Font16, isSel ? WHITE : BLACK,
-                                 isSel ? BLACK : WHITE);
+            drawListRow(idx == st.selected, items[idx], kListTop + i * kRowH);
         }
     }
 
-    Paint_DrawString_EN(10, Display::height() - 20, footer, &Font12, BLACK, WHITE);
+    drawFooter(footer);
     Display::endFrame(true);
 }
 
@@ -174,19 +350,73 @@ std::vector<String> namesOf(const std::vector<ContentItem> &items) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Image viewer (cards, tickets). The BMP is full-panel, so this is just the
+// missing-file/empty diagnostics around GUI_ReadBmp(). A clean refresh keeps
+// the photo-like content ghost-free.
+// ---------------------------------------------------------------------------
+
 void showImage(const char *title, const String &path) {
     Display::beginFrame();
     if (path.length() == 0) {
-        Paint_DrawString_EN(10, 10, title, &Font20, BLACK, WHITE);
-        Paint_DrawString_EN(10, 60, "No image configured.", &Font16, BLACK, WHITE);
+        Paint_DrawString_EN(14, 60, title, &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(14, 96, "No image configured.", &Font16, BLACK, WHITE);
+        drawFooter("BOOT back");
     } else if (!SD_MMC.exists(path)) {
-        Paint_DrawString_EN(10, 10, title, &Font20, BLACK, WHITE);
-        Paint_DrawString_EN(10, 60, "File missing on SD card:", &Font16, BLACK, WHITE);
-        Paint_DrawString_EN(10, 80, path.c_str(), &Font12, BLACK, WHITE);
+        Paint_DrawString_EN(14, 60, title, &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(14, 96, "File missing on SD card:", &Font16, BLACK, WHITE);
+        Paint_DrawString_EN(14, 120, path.c_str(), &Font12, BLACK, WHITE);
+        drawFooter("BOOT back");
     } else {
         GUI_ReadBmp(path.c_str(), 0, 0);
     }
     Display::endFrame(/*fast=*/false); // images benefit from a clean, ghost-free refresh
+}
+
+// ---------------------------------------------------------------------------
+// DuitNow receive screen. The QR BMP reserves white space at the top and
+// bottom (see tools/make_bmp.py --top/--bottom); the firmware composites
+// the title and the scan hint on top of that white space, so the receive
+// screen reads as a designed screen rather than a raw image dump.
+// ---------------------------------------------------------------------------
+
+void drawDuitNowScreen() {
+    const int W = Display::width();
+    const int H = Display::height();
+    const String &path = Storage::duitnowQrPath();
+    Display::beginFrame();
+
+    if (path.length() == 0) {
+        Paint_DrawString_EN(kEdge, 60, "No DuitNow QR configured.", &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, 96, "Put qr/duitnow.bmp on the SD card", &Font16, BLACK,
+                            WHITE);
+        Paint_DrawString_EN(kEdge, 120, "and set duitnow_qr in manifest.json.", &Font16, BLACK,
+                            WHITE);
+        drawFooter("BOOT back");
+    } else if (!SD_MMC.exists(path)) {
+        Paint_DrawString_EN(kEdge, 60, "QR file missing on SD card:", &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, 100, path.c_str(), &Font12, BLACK, WHITE);
+        drawFooter("BOOT back");
+    } else {
+        GUI_ReadBmp(path.c_str(), 0, 0);
+
+        // Top band (reserved white in the BMP): title + underline + tagline
+        Paint_DrawString_EN(26, 22, "DuitNow", &Font24, BLACK, WHITE);
+        Paint_DrawRectangle(28, 22 + Font24.Height + 5, 28 + textWidth("DuitNow", Font24),
+                            22 + Font24.Height + 8, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        Paint_DrawString_EN(28, 22 + Font24.Height + 15, "Scan to receive money", &Font16, BLACK,
+                            WHITE);
+
+        // Bottom band (reserved white in the BMP): hint + account label
+        Paint_DrawString_EN(centerX("Scan with your banking app", Font16), H - 74,
+                            "Scan with your banking app", &Font16, BLACK, WHITE);
+        if (Storage::duitnowLabel().length() > 0) {
+            Paint_DrawString_EN(centerX(Storage::duitnowLabel().c_str(), Font20), H - 46,
+                                Storage::duitnowLabel().c_str(), &Font20, BLACK, WHITE);
+        }
+    }
+
+    Display::endFrame(/*fast=*/false); // clean refresh: QR must be crisp
 }
 
 // ---------------------------------------------------------------------------
@@ -195,31 +425,46 @@ void showImage(const char *title, const String &path) {
 
 void drawTodoScreen() {
     Display::beginFrame();
-    Paint_DrawRectangle(0, 0, Display::width() - 1, 40, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    Paint_DrawString_EN(10, 8, "To-Do List", &Font20, WHITE, BLACK);
+    drawHeader("To-Do List");
 
     if (todoItems.empty()) {
-        Paint_DrawString_EN(10, 60, "todo.txt is empty or missing.", &Font16, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, kListTop, "todo.txt is empty or missing.", &Font16, BLACK,
+                            WHITE);
     } else {
-        int rowH = Font16.Height + 14;
         int rows = visibleRows();
         for (int i = 0; i < rows; i++) {
             int idx = todoState.scrollTop + i;
             if (idx >= (int)todoItems.size()) break;
-            int y = 50 + i * rowH;
-            bool isSel = (idx == todoState.selected);
-            if (isSel) {
-                Paint_DrawRectangle(5, y, Display::width() - 5, y + rowH - 4, BLACK, DOT_PIXEL_1X1,
-                                     DRAW_FILL_FULL);
+            const int y = kListTop + i * kRowH;
+            const bool sel = (idx == todoState.selected);
+            const UWORD fg = sel ? WHITE : BLACK;
+
+            if (sel) {
+                Paint_DrawRectangle(8, y, Display::width() - 8, y + kRowH - 4, BLACK,
+                                    DOT_PIXEL_1X1, DRAW_FILL_FULL);
             }
-            String line = String(todoItems[idx].done ? "[x] " : "[ ] ") + todoItems[idx].text;
-            Paint_DrawString_EN(15, y + 6, line.c_str(), &Font16, isSel ? WHITE : BLACK,
-                                 isSel ? BLACK : WHITE);
+
+            // Checkbox glyph: outlined box, ticked when done
+            Paint_DrawRectangle(kEdge, y + 10, kEdge + 11, y + 21, fg, DOT_PIXEL_1X1,
+                                DRAW_FILL_EMPTY);
+            if (todoItems[idx].done) {
+                Paint_DrawLine(kEdge + 2, y + 15, kEdge + 5, y + 18, fg, DOT_PIXEL_1X1,
+                               LINE_STYLE_SOLID);
+                Paint_DrawLine(kEdge + 5, y + 18, kEdge + 9, y + 12, fg, DOT_PIXEL_1X1,
+                               LINE_STYLE_SOLID);
+            }
+
+            Paint_DrawString_EN(kEdge + 18, y + 8, todoItems[idx].text.c_str(), &Font16, fg,
+                                sel ? BLACK : WHITE);
+
+            if (!sel) {
+                Paint_DrawLine(kEdge, y + kRowH - 2, Display::width() - kEdge, y + kRowH - 2,
+                               BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            }
         }
     }
 
-    Paint_DrawString_EN(10, Display::height() - 20, "UP/DOWN move  SELECT check  BOOT back", &Font12,
-                         BLACK, WHITE);
+    drawFooter("UP/DOWN move   SELECT check   BOOT back");
     Display::endFrame(true);
 }
 
@@ -230,12 +475,15 @@ void drawTodoScreen() {
 uint32_t renderBookPage(File &f, uint32_t startOffset) {
     f.seek(startOffset);
     Display::beginFrame();
-    Paint_DrawString_EN(10, 8, readerTitle.c_str(), &Font16, BLACK, WHITE);
 
-    const int marginX = 10;
-    const int top = 34;
+    Paint_DrawString_EN(kEdge, 10, readerTitle.c_str(), &Font16, BLACK, WHITE);
+    Paint_DrawLine(kEdge, 36, Display::width() - kEdge, 36, BLACK, DOT_PIXEL_1X1,
+                   LINE_STYLE_SOLID);
+
+    const int marginX = kEdge;
+    const int top = 44;
     const int lineH = Font16.Height + 4;
-    const int maxLines = max(1, (Display::height() - top - 24) / lineH);
+    const int maxLines = max(1, (Display::height() - top - kFooterH) / lineH);
     const int maxCharsPerLine = max(1, (Display::width() - 2 * marginX) / Font16.Width);
 
     int line = 0;
@@ -258,7 +506,8 @@ uint32_t renderBookPage(File &f, uint32_t startOffset) {
             bool fits = (cur.length() == 0) ||
                         (cur.length() + 1 + word.length() <= (unsigned)maxCharsPerLine);
             if (!fits) {
-                Paint_DrawString_EN(marginX, top + line * lineH, cur.c_str(), &Font16, BLACK, WHITE);
+                Paint_DrawString_EN(marginX, top + line * lineH, cur.c_str(), &Font16, BLACK,
+                                    WHITE);
                 line++;
                 if (line >= maxLines) {
                     stoppedForOverflow = true;
@@ -274,7 +523,8 @@ uint32_t renderBookPage(File &f, uint32_t startOffset) {
             wordStartPos = pos;
 
             if (c == '\n') {
-                Paint_DrawString_EN(marginX, top + line * lineH, cur.c_str(), &Font16, BLACK, WHITE);
+                Paint_DrawString_EN(marginX, top + line * lineH, cur.c_str(), &Font16, BLACK,
+                                    WHITE);
                 line++;
                 cur = "";
                 if (line >= maxLines) break;
@@ -296,9 +546,7 @@ uint32_t renderBookPage(File &f, uint32_t startOffset) {
         }
     }
 
-    Paint_DrawString_EN(10, Display::height() - 20,
-                         eof ? "End of book   BOOT: back" : "UP/DOWN page   BOOT: back", &Font12,
-                         BLACK, WHITE);
+    drawFooter(eof ? "End of book   BOOT: back" : "UP/DOWN page   BOOT: back");
     Display::endFrame(true);
     return pos;
 }
@@ -322,9 +570,9 @@ void openBook(const ContentItem &book) {
     readerPageIndex = 0;
     if (!readerFile) {
         Display::beginFrame();
-        Paint_DrawString_EN(10, 10, "E-Book Reader", &Font20, BLACK, WHITE);
-        Paint_DrawString_EN(10, 60, "Could not open file on SD card.", &Font16, BLACK, WHITE);
-        Paint_DrawString_EN(10, 60 + Font16.Height + 6, book.path.c_str(), &Font12, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, 60, "Could not open file on SD card.", &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge, 96, book.path.c_str(), &Font12, BLACK, WHITE);
+        drawFooter("BOOT back");
         Display::endFrame(false);
         return;
     }
@@ -332,49 +580,51 @@ void openBook(const ContentItem &book) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings
+// Settings: label/value info block + action rows
 // ---------------------------------------------------------------------------
+
+struct SettingsInfoRow {
+    const char *label;
+    String value;
+};
+
+void settingsInfoRows(SettingsInfoRow *rows, int &count) {
+    rows[0] = {"FIRMWARE", STACK_WALLET_VERSION};
+    rows[1] = {"WI-FI", WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString()
+                                                      : String("not connected")};
+    rows[2] = {"SD CARD", Storage::isMounted() ? String("mounted") : String("not found")};
+    rows[3] = {"OTA", OTA::lastCheckStatus()};
+    count = 4;
+}
+
+// Draws the settings info rows starting at y, optionally reusing an existing
+// OTA value (for a partial update after a manual check).
+void drawSettingsInfo(int y, const char *otaStatusOverride = nullptr) {
+    SettingsInfoRow rows[4];
+    int count = 0;
+    settingsInfoRows(rows, count);
+    if (otaStatusOverride) rows[3].value = otaStatusOverride;
+
+    for (int i = 0; i < count; i++) {
+        Paint_DrawString_EN(kEdge, y + i * 30, rows[i].label, &Font12, BLACK, WHITE);
+        Paint_DrawString_EN(kEdge + 88, y + i * 30 - 2, rows[i].value.c_str(), &Font16, BLACK,
+                            WHITE);
+    }
+}
 
 void drawSettingsScreen() {
     Display::beginFrame();
-    Paint_DrawRectangle(0, 0, Display::width() - 1, 40, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    Paint_DrawString_EN(10, 8, "Settings", &Font20, WHITE, BLACK);
+    drawHeader("Settings");
+    drawSettingsInfo(56);
+    Paint_DrawLine(kEdge, 56 + 4 * 30 + 4, Display::width() - kEdge, 56 + 4 * 30 + 4, BLACK,
+                   DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
-    int y = 55;
-    int lineH = Font16.Height + 10;
-    String line;
-
-    line = String("Firmware: ") + STACK_WALLET_VERSION;
-    Paint_DrawString_EN(10, y, line.c_str(), &Font16, BLACK, WHITE);
-    y += lineH;
-
-    line = String("Wi-Fi: ") +
-           (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("not connected"));
-    Paint_DrawString_EN(10, y, line.c_str(), &Font16, BLACK, WHITE);
-    y += lineH;
-
-    line = String("SD card: ") + (Storage::isMounted() ? "mounted" : "not found");
-    Paint_DrawString_EN(10, y, line.c_str(), &Font16, BLACK, WHITE);
-    y += lineH;
-
-    line = String("OTA: ") + OTA::lastCheckStatus();
-    Paint_DrawString_EN(10, y, line.c_str(), &Font16, BLACK, WHITE);
-    y += lineH + 10;
-
-    int rowH = Font16.Height + 14;
+    const int y0 = 56 + 4 * 30 + 14;
     for (int i = 0; i < kSettingsActionCount; i++) {
-        int ry = y + i * rowH;
-        bool isSel = (i == settingsState.selected);
-        if (isSel) {
-            Paint_DrawRectangle(5, ry, Display::width() - 5, ry + rowH - 4, BLACK, DOT_PIXEL_1X1,
-                                 DRAW_FILL_FULL);
-        }
-        Paint_DrawString_EN(15, ry + 6, kSettingsActions[i], &Font16, isSel ? WHITE : BLACK,
-                             isSel ? BLACK : WHITE);
+        drawListRow(i == settingsState.selected, kSettingsActions[i], y0 + i * kRowH);
     }
 
-    Paint_DrawString_EN(10, Display::height() - 20, "UP/DOWN move  SELECT choose  BOOT back",
-                         &Font12, BLACK, WHITE);
+    drawFooter("UP/DOWN move   SELECT choose   BOOT back");
     Display::endFrame(true);
 }
 
@@ -384,24 +634,21 @@ void drawSettingsScreen() {
 
 void render() {
     switch (currentScreen) {
-        case SCREEN_HOME: {
-            std::vector<String> labels;
-            for (int i = 0; i < kHomeMenuCount; i++) labels.push_back(kHomeMenu[i].label);
-            drawListScreen("Stack Wallet", labels, homeState, "", "UP/DOWN move  SELECT open");
+        case SCREEN_HOME:
+            drawHomeScreen();
             break;
-        }
         case SCREEN_CARDS:
             drawListScreen("Loyalty Cards", namesOf(Storage::cards()), cardsState,
-                            "No cards on SD card. See docs/CONTENT.md.",
-                            "UP/DOWN move  SELECT open  BOOT back");
+                           "No cards on SD card. See docs/CONTENT.md.",
+                           "UP/DOWN move   SELECT open   BOOT back");
             break;
         case SCREEN_CARD_VIEW:
             showImage("Loyalty Card", Storage::cards()[cardsState.selected].path);
             break;
         case SCREEN_TICKETS:
             drawListScreen("Flight Tickets", namesOf(Storage::tickets()), ticketsState,
-                            "No tickets on SD card. See docs/CONTENT.md.",
-                            "UP/DOWN move  SELECT open  BOOT back");
+                           "No tickets on SD card. See docs/CONTENT.md.",
+                           "UP/DOWN move   SELECT open   BOOT back");
             break;
         case SCREEN_TICKET_VIEW:
             showImage("Flight Ticket", Storage::tickets()[ticketsState.selected].path);
@@ -410,12 +657,12 @@ void render() {
             drawTodoScreen();
             break;
         case SCREEN_QR:
-            showImage("Receive - DuitNow", Storage::duitnowQrPath());
+            drawDuitNowScreen();
             break;
         case SCREEN_BOOKS:
             drawListScreen("E-Book Reader", namesOf(Storage::books()), booksState,
-                            "No books on SD card. See docs/CONTENT.md.",
-                            "UP/DOWN move  SELECT open  BOOT back");
+                           "No books on SD card. See docs/CONTENT.md.",
+                           "UP/DOWN move   SELECT open   BOOT back");
             break;
         case SCREEN_BOOK_READ:
             // Page already rendered by showReaderPage() when this screen was entered
@@ -563,10 +810,15 @@ void handleSelect() {
         case SCREEN_SETTINGS:
             if (settingsState.selected == 0) {
                 OTA::checkAndApplyNow(); // reboots on success; falls through to redraw on failure
+                // Partial update just the OTA row instead of a full screen flash
+                const int rowY = 56 + 3 * 30;
+                Display::beginPartialDraw();
+                drawSettingsInfo(56, OTA::lastCheckStatus().c_str());
+                Display::partialUpdate(kEdge, rowY - 4, Display::width() - kEdge, rowY + 28);
             } else {
                 WifiProvision::runSetupPortal();
+                dirty = true;
             }
-            dirty = true;
             break;
         default:
             break;
@@ -596,6 +848,27 @@ void handleBack() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Idle deep sleep: the e-ink image persists while the panel sleeps, so the
+// device just goes quiet; the first button press wakes it.
+// ---------------------------------------------------------------------------
+
+bool asleep = false;
+unsigned long lastActivityMs = 0;
+
+void markActivity() {
+    lastActivityMs = millis();
+    if (asleep) asleep = false;
+}
+
+void checkIdleSleep() {
+    if (!asleep && IDLE_SLEEP_MS > 0 && millis() - lastActivityMs >= IDLE_SLEEP_MS) {
+        asleep = true;
+        Serial.println("UI: idle timeout - panel sleeping (press any button to wake)");
+        Display::sleep();
+    }
+}
+
 } // namespace
 
 namespace UI {
@@ -611,18 +884,44 @@ void begin() {
 
     currentScreen = SCREEN_HOME;
     dirty = true;
+    lastActivityMs = millis();
 }
 
 void loop() {
-    if (btnUp.pressed()) handleUp();
-    if (btnDown.pressed()) handleDown();
-    if (btnSelect.pressed()) handleSelect();
-    if (btnBack.pressed()) handleBack();
+    if (asleep) {
+        // Wake on any button; the press that woke the device is consumed so
+        // it doesn't also navigate somewhere.
+        if (btnUp.pressed() || btnDown.pressed() || btnSelect.pressed() || btnBack.pressed()) {
+            markActivity();
+            dirty = true; // re-init + redraw the current screen
+            Serial.println("UI: woke from panel sleep");
+        }
+        return;
+    }
+
+    if (btnUp.pressed()) {
+        markActivity();
+        handleUp();
+    }
+    if (btnDown.pressed()) {
+        markActivity();
+        handleDown();
+    }
+    if (btnSelect.pressed()) {
+        markActivity();
+        handleSelect();
+    }
+    if (btnBack.pressed()) {
+        markActivity();
+        handleBack();
+    }
 
     if (dirty) {
         render();
         dirty = false;
     }
+
+    checkIdleSleep();
 }
 
 } // namespace UI

@@ -12,6 +12,7 @@ std::vector<ContentItem> cardsList;
 std::vector<ContentItem> ticketsList;
 std::vector<ContentItem> booksList;
 String duitnowPath;
+String duitnowLabelText;
 
 String joinPath(const String &relative) {
     if (relative.length() == 0) return "";
@@ -55,6 +56,7 @@ bool loadManifest() {
     ticketsList.clear();
     booksList.clear();
     duitnowPath = "";
+    duitnowLabelText = "";
 
     if (!mounted) return false;
 
@@ -84,6 +86,7 @@ bool loadManifest() {
     if (doc["duitnow_qr"].is<const char *>()) {
         duitnowPath = joinPath(doc["duitnow_qr"].as<String>());
     }
+    duitnowLabelText = doc["duitnow_label"].as<String>();
 
     return true;
 }
@@ -102,6 +105,10 @@ const std::vector<ContentItem> &books() {
 
 const String &duitnowQrPath() {
     return duitnowPath;
+}
+
+const String &duitnowLabel() {
+    return duitnowLabelText;
 }
 
 std::vector<TodoItem> loadTodo() {

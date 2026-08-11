@@ -42,14 +42,20 @@ def blank_canvas() -> Image.Image:
     return Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), color=255)
 
 
-def fit_image(canvas: Image.Image, art: Image.Image, margin: int) -> None:
-    """Scales `art` to fit within the margins and pastes it centered."""
+def fit_image(canvas: Image.Image, art: Image.Image, margin: int, top: int = 0,
+              bottom: int = 0) -> None:
+    """Scales `art` to fit within the margins and pastes it centered.
+
+    `top`/`bottom` reserve extra white space at the top/bottom of the panel
+    (used for the DuitNow screen, where the firmware composites a title and
+    a scan hint over the reserved bands).
+    """
     max_w = PANEL_WIDTH - 2 * margin
-    max_h = PANEL_HEIGHT - 2 * margin
+    max_h = PANEL_HEIGHT - top - bottom - 2 * margin
     art = art.convert("L")
     art.thumbnail((max_w, max_h), Image.LANCZOS)
     x = (PANEL_WIDTH - art.width) // 2
-    y = (PANEL_HEIGHT - art.height) // 2
+    y = top + (PANEL_HEIGHT - top - bottom - art.height) // 2
     canvas.paste(art, (x, y))
 
 
@@ -71,7 +77,9 @@ def draw_centered_label(canvas: Image.Image, text: str, size: int, y: int) -> No
 def cmd_image(args):
     canvas = blank_canvas()
     art = Image.open(args.input)
-    fit_image(canvas, art, margin=args.margin)
+    if args.crop:
+        art = art.crop(tuple(args.crop))
+    fit_image(canvas, art, margin=args.margin, top=args.top, bottom=args.bottom)
     save_1bit_bmp(canvas, Path(args.output))
 
 
@@ -123,6 +131,12 @@ def main():
     p_img.add_argument("input")
     p_img.add_argument("output")
     p_img.add_argument("--margin", type=int, default=20)
+    p_img.add_argument("--top", type=int, default=0,
+                       help="reserve white space at the top of the panel (px)")
+    p_img.add_argument("--bottom", type=int, default=0,
+                       help="reserve white space at the bottom of the panel (px)")
+    p_img.add_argument("--crop", type=int, nargs=4, metavar=("X0", "Y0", "X1", "Y1"),
+                       help="crop the source image to this box (x0 y0 x1 y1) before fitting")
     p_img.set_defaults(func=cmd_image)
 
     p_qr = sub.add_parser("qr", help="Render a QR code (e.g. a DuitNow payload)")
