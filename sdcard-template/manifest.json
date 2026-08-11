@@ -7,7 +7,9 @@
     {"name": "JOM PHARMACY", "image": "cards/jom_pharmacy.bmp"}
   ],
   "tickets": [],
-  "books": [],
+  "books": [
+    {"name": "Odyssey", "file": "books/odyssey.txt"}
+  ],
   "duitnow_qr": "qr/duitnow.bmp",
   "duitnow_label": "Ken"
 }
