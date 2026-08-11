@@ -45,6 +45,14 @@ void setup() {
 
     Display::begin();
 
+    // A full-quality refresh once at boot avoids carrying over ghosting
+    // from whatever was last on the panel (e.g. the factory demo image),
+    // and exercises the panel's full-refresh waveform independently of
+    // the fast/partial path the UI uses afterward.
+    Serial.println("Full-panel clear (screen should flash white)...");
+    Display::fullClear();
+    Serial.println("Full-panel clear done");
+
     if (!Storage::begin()) {
         Serial.println("WARNING: microSD card not found or failed to mount");
     }
