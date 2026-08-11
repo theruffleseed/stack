@@ -68,7 +68,33 @@ void endFrame(bool fast) {
 }
 
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    EPD_3IN97_Display_Partial(frameBuffer, x0, y0, x1, y1);
+    // The caller passes logical (post-rotation/mirror) coordinates. Convert
+    // them to panel-native (800x480) to match the raw framebuffer layout and
+    // what EPD_3IN97_Display_Partial expects.
+    uint16_t px0, py0, px1, py1;
+    if (DISPLAY_ROTATE == 90 && DISPLAY_MIRROR == 0x03) {
+        px0 = y0;
+        py0 = EPD_3IN97_HEIGHT - x1 - 1;
+        px1 = y1;
+        py1 = EPD_3IN97_HEIGHT - x0 - 1;
+    } else if (DISPLAY_ROTATE == 90) {
+        px0 = EPD_3IN97_WIDTH - y1 - 1;
+        py0 = x0;
+        px1 = EPD_3IN97_WIDTH - y0 - 1;
+        py1 = x1;
+    } else {
+        px0 = x0;
+        py0 = y0;
+        px1 = x1;
+        py1 = y1;
+    }
+
+    // EPD_3IN97_Display_Partial sends a sequential block from the base of
+    // the Image pointer. Offset into the framebuffer so the first byte
+    // corresponds to the window's top-left pixel.
+    uint16_t rowBytes = (EPD_3IN97_WIDTH + 7) / 8;
+    const UBYTE *region = frameBuffer + (uint32_t)py0 * rowBytes + px0 / 8;
+    EPD_3IN97_Display_Partial(region, px0, py0, px1, py1);
 }
 
 void sleep() {
