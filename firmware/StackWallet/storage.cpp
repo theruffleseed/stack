@@ -22,6 +22,7 @@ String duitnowLabelText;
 // and type. Windows can hide trailing spaces/unicode look-alikes in file
 // names; this shows exactly what the device's VFS sees.
 void dumpCardRoot();
+void dumpMbr(sdmmc_card_t *card);
 
 String joinPath(const String &relative) {
     if (relative.length() == 0) return "";
@@ -52,9 +53,11 @@ void readItemArray(JsonArrayConst arr, const char *fileKey, std::vector<ContentI
 
 // Diagnostic: print every entry in the card root with its exact byte length
 // and type. Windows can hide trailing spaces/unicode look-alikes in file
-// names; this shows exactly what the device's VFS sees.
+// names; this shows exactly what the device's VFS sees. Note the trailing
+// slash: ESP-IDF's VFS refuses to open the mount point itself ("/sdcard"),
+// but "/sdcard/" lists the directory.
 void dumpCardRoot() {
-    File root = SD_MMC.open(SD_MOUNT_POINT);
+    File root = SD_MMC.open(String(SD_MOUNT_POINT) + "/");
     if (!root || !root.isDirectory()) {
         Serial.println("Storage: could not open card root directory");
         return;
@@ -71,6 +74,28 @@ void dumpCardRoot() {
         n++;
     }
     if (n == 0) Serial.println("Storage: card root is EMPTY");
+}
+
+// Prints the card's MBR partition table (if any). A card with leftover
+// partition tables from a camera/phone can expose a different FAT volume to
+// the ESP32 than the one Windows shows - this makes that visible.
+void dumpMbr(sdmmc_card_t *card) {
+    uint8_t mbr[512];
+    if (sdmmc_read_sectors(card, mbr, 0, 1) != ESP_OK) {
+        Serial.println("Storage: could not read MBR sector");
+        return;
+    }
+    if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
+        Serial.println("Storage: no MBR signature (superfloppy layout)");
+        return;
+    }
+    for (int i = 0; i < 4; i++) {
+        const uint8_t *pe = mbr + 446 + i * 16;
+        if (pe[4] == 0x00 && pe[8] == 0 && pe[9] == 0 && pe[10] == 0 && pe[11] == 0) continue;
+        uint32_t lba = pe[8] | (pe[9] << 8) | (pe[10] << 16) | ((uint32_t)pe[11] << 24);
+        uint32_t n = pe[12] | (pe[13] << 8) | (pe[14] << 16) | ((uint32_t)pe[15] << 24);
+        Serial.printf("Storage: MBR[%d] type=0x%02X lba=%u sectors=%u\n", i, pe[4], lba, n);
+    }
 }
 
 } // namespace
@@ -110,31 +135,9 @@ bool begin() {
     mounted = true;
     sdmmc_card_print_info(stdout, card);
     Serial.printf("Storage::begin: mounted at %s\n", SD_MOUNT_POINT);
+    dumpMbr(card);
     dumpCardRoot();
     return true;
-}
-
-// Diagnostic: print every entry in the card root with its exact byte length
-// and type. Windows can hide trailing spaces/unicode look-alikes in file
-// names; this shows exactly what the device's VFS sees.
-void dumpCardRoot() {
-    File root = SD_MMC.open(SD_MOUNT_POINT);
-    if (!root || !root.isDirectory()) {
-        Serial.println("Storage: could not open card root directory");
-        return;
-    }
-    File entry = root.openNextFile();
-    int n = 0;
-    while (entry) {
-        const char *name = entry.name();
-        const char *slash = strrchr(name, '/');
-        const char *base = slash ? slash + 1 : name;
-        Serial.printf("Storage: root[%d] len=%u '%s' %s %u bytes\n", n, (unsigned)strlen(base),
-                      base, entry.isDirectory() ? "DIR" : "FILE", (unsigned)entry.size());
-        entry = root.openNextFile();
-        n++;
-    }
-    if (n == 0) Serial.println("Storage: card root is EMPTY");
 }
 
 bool isMounted() {
@@ -150,9 +153,19 @@ bool loadManifest() {
 
     if (!mounted) return false;
 
+    errno = 0;
+    int fd = ::open(mountPath(MANIFEST_PATH).c_str(), O_RDONLY);
+    if (fd < 0) {
+        Serial.printf("Storage::loadManifest: open %s errno=%d (%s)\n",
+                      mountPath(MANIFEST_PATH).c_str(), errno, strerror(errno));
+        return false;
+    }
+    ::close(fd);
+
     File f = SD_MMC.open(mountPath(MANIFEST_PATH), FILE_READ);
     if (!f) {
-        Serial.printf("Storage::loadManifest: could not open %s\n", mountPath(MANIFEST_PATH).c_str());
+        Serial.printf("Storage::loadManifest: SD_MMC open failed for %s\n",
+                      mountPath(MANIFEST_PATH).c_str());
         return false;
     }
 
