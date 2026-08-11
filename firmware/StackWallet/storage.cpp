@@ -18,6 +18,11 @@ std::vector<ContentItem> booksList;
 String duitnowPath;
 String duitnowLabelText;
 
+// Diagnostic: print every entry in the card root with its exact byte length
+// and type. Windows can hide trailing spaces/unicode look-alikes in file
+// names; this shows exactly what the device's VFS sees.
+void dumpCardRoot();
+
 String joinPath(const String &relative) {
     if (relative.length() == 0) return "";
     if (relative.startsWith("/")) return String(SD_MOUNT_POINT) + relative;
@@ -43,6 +48,29 @@ void readItemArray(JsonArrayConst arr, const char *fileKey, std::vector<ContentI
             out.push_back(item);
         }
     }
+}
+
+// Diagnostic: print every entry in the card root with its exact byte length
+// and type. Windows can hide trailing spaces/unicode look-alikes in file
+// names; this shows exactly what the device's VFS sees.
+void dumpCardRoot() {
+    File root = SD_MMC.open(SD_MOUNT_POINT);
+    if (!root || !root.isDirectory()) {
+        Serial.println("Storage: could not open card root directory");
+        return;
+    }
+    File entry = root.openNextFile();
+    int n = 0;
+    while (entry) {
+        const char *name = entry.name();
+        const char *slash = strrchr(name, '/');
+        const char *base = slash ? slash + 1 : name;
+        Serial.printf("Storage: root[%d] len=%u '%s' %s %u bytes\n", n, (unsigned)strlen(base),
+                      base, entry.isDirectory() ? "DIR" : "FILE", (unsigned)entry.size());
+        entry = root.openNextFile();
+        n++;
+    }
+    if (n == 0) Serial.println("Storage: card root is EMPTY");
 }
 
 } // namespace
@@ -82,7 +110,31 @@ bool begin() {
     mounted = true;
     sdmmc_card_print_info(stdout, card);
     Serial.printf("Storage::begin: mounted at %s\n", SD_MOUNT_POINT);
+    dumpCardRoot();
     return true;
+}
+
+// Diagnostic: print every entry in the card root with its exact byte length
+// and type. Windows can hide trailing spaces/unicode look-alikes in file
+// names; this shows exactly what the device's VFS sees.
+void dumpCardRoot() {
+    File root = SD_MMC.open(SD_MOUNT_POINT);
+    if (!root || !root.isDirectory()) {
+        Serial.println("Storage: could not open card root directory");
+        return;
+    }
+    File entry = root.openNextFile();
+    int n = 0;
+    while (entry) {
+        const char *name = entry.name();
+        const char *slash = strrchr(name, '/');
+        const char *base = slash ? slash + 1 : name;
+        Serial.printf("Storage: root[%d] len=%u '%s' %s %u bytes\n", n, (unsigned)strlen(base),
+                      base, entry.isDirectory() ? "DIR" : "FILE", (unsigned)entry.size());
+        entry = root.openNextFile();
+        n++;
+    }
+    if (n == 0) Serial.println("Storage: card root is EMPTY");
 }
 
 bool isMounted() {
