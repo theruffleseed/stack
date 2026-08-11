@@ -10,8 +10,11 @@ UDOUBLE frameBufferSize = 0;
 namespace Display {
 
 void begin() {
+    Serial.println("Display::begin: DEV_Module_Init...");
     DEV_Module_Init();
+    Serial.println("Display::begin: EPD_3IN97_Init...");
     EPD_3IN97_Init();
+    Serial.println("Display::begin: EPD_3IN97_Init done");
 
     frameBufferSize = ((EPD_3IN97_WIDTH % 8 == 0) ? (EPD_3IN97_WIDTH / 8)
                                                    : (EPD_3IN97_WIDTH / 8 + 1)) *
@@ -28,6 +31,7 @@ void begin() {
     Paint_SetScale(2);
     Paint_SelectImage(frameBuffer);
     Paint_Clear(WHITE);
+    Serial.println("Display::begin: done");
 }
 
 void fullClear() {

@@ -79,8 +79,19 @@ static void EPD_3IN97_ReadBusy(void)
 {
     Debug("e-Paper busy\r\n");
     DEV_Delay_ms(100);
+    // Bounded wait: the panel is expected to release BUSY (GPIO3) within a
+    // couple of seconds. Without this cap, a wiring/power issue or a stuck
+    // strapping pin turns into a silent infinite hang with no diagnostic -
+    // exactly the symptom this timeout is meant to surface instead.
+    UDOUBLE waited_ms = 0;
+    const UDOUBLE timeout_ms = 5000;
     while(DEV_Digital_Read(EPD_BUSY_PIN) == 1) {      //LOW: idle, HIGH: busy
         DEV_Delay_ms(10);
+        waited_ms += 10;
+        if (waited_ms >= timeout_ms) {
+            Debug("e-Paper busy TIMEOUT - BUSY (GPIO3) never went low, check panel power/wiring\r\n");
+            return;
+        }
     }
     Debug("e-Paper busy release\r\n");
 }

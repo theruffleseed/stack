@@ -66,8 +66,10 @@ UBYTE DEV_Module_Init(void)
 	//gpio
 	GPIO_Config();
 
-	//serial printf
-	Serial.begin(115200);
+	// Serial is already started in StackWallet.ino's setup() before this
+	// runs. Re-calling Serial.begin() here resets the native USB CDC
+	// interface on ESP32-S3, which can silently drop an already-connected
+	// Serial Monitor session with no error - so it's skipped.
 
 	// spi
 	// SPI.setDataMode(SPI_MODE0);
