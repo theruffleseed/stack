@@ -22,7 +22,6 @@ String duitnowLabelText;
 // and type. Windows can hide trailing spaces/unicode look-alikes in file
 // names; this shows exactly what the device's VFS sees.
 void dumpCardRoot();
-void dumpMbr(sdmmc_card_t *card);
 
 String joinPath(const String &relative) {
     if (relative.length() == 0) return "";
@@ -76,66 +75,25 @@ void dumpCardRoot() {
     if (n == 0) Serial.println("Storage: card root is EMPTY");
 }
 
-// Prints the card's MBR partition table (if any). A card with leftover
-// partition tables from a camera/phone can expose a different FAT volume to
-// the ESP32 than the one Windows shows - this makes that visible.
-void dumpMbr(sdmmc_card_t *card) {
-    uint8_t mbr[512];
-    if (sdmmc_read_sectors(card, mbr, 0, 1) != ESP_OK) {
-        Serial.println("Storage: could not read MBR sector");
-        return;
-    }
-    if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
-        Serial.println("Storage: no MBR signature (superfloppy layout)");
-        return;
-    }
-    for (int i = 0; i < 4; i++) {
-        const uint8_t *pe = mbr + 446 + i * 16;
-        if (pe[4] == 0x00 && pe[8] == 0 && pe[9] == 0 && pe[10] == 0 && pe[11] == 0) continue;
-        uint32_t lba = pe[8] | (pe[9] << 8) | (pe[10] << 16) | ((uint32_t)pe[11] << 24);
-        uint32_t n = pe[12] | (pe[13] << 8) | (pe[14] << 16) | ((uint32_t)pe[15] << 24);
-        Serial.printf("Storage: MBR[%d] type=0x%02X lba=%u sectors=%u\n", i, pe[4], lba, n);
-    }
-}
-
 } // namespace
 
 namespace Storage {
 
 bool begin() {
-    // Mount via the ESP-IDF SDMMC layer directly (same driver Arduino's
-    // SD_MMC wrapper uses) so we can report *why* a card isn't mounting
-    // instead of a bare "failed" - the reason in Serial tells us whether
-    // it's a missing card, a bad contact, or an unsupported filesystem.
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
-
-    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot.width = 1; // 1-bit mode: matches Waveshare's verified 05_SD_Test config
-    slot.clk = (gpio_num_t)SD_CLK_PIN;
-    slot.cmd = (gpio_num_t)SD_CMD_PIN;
-    slot.d0 = (gpio_num_t)SD_D0_PIN;
-    slot.d1 = (gpio_num_t)SD_D1_PIN;
-    slot.d2 = (gpio_num_t)SD_D2_PIN;
-    slot.d3 = (gpio_num_t)SD_D3_PIN;
-
-    esp_vfs_fat_sdmmc_mount_config_t mountConfig = {};
-    mountConfig.format_if_mount_failed = false;
-    mountConfig.max_files = 8;
-    mountConfig.allocation_unit_size = 16 * 1024;
-
-    sdmmc_card_t *card = nullptr;
-    esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &host, &slot, &mountConfig, &card);
-    if (ret != ESP_OK) {
-        mounted = false;
-        Serial.printf("Storage::begin: SD mount failed: %s\n", esp_err_to_name(ret));
+    // Match Waveshare's verified 05_SD_Test example for this exact board:
+    // Arduino's SD_MMC wrapper over the IDF SDMMC driver, 1-bit mode. This
+    // is the configuration proven to work on this hardware; the lower-level
+    // esp_vfs_fat_sdmmc_mount() call used briefly during debugging mounted
+    // the card but its VFS refused every file access, so we're back to the
+    // reference path.
+    SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
+    mounted = SD_MMC.begin(SD_MOUNT_POINT, /*mode1bit=*/true);
+    if (!mounted) {
+        Serial.println("Storage::begin: SD_MMC.begin() failed - card not detected or not FAT16/FAT32");
+        Serial.println("Storage::begin: re-seat the card, or format it FAT32 on a PC, then retry");
         return false;
     }
-
-    mounted = true;
-    sdmmc_card_print_info(stdout, card);
     Serial.printf("Storage::begin: mounted at %s\n", SD_MOUNT_POINT);
-    dumpMbr(card);
     dumpCardRoot();
     return true;
 }
