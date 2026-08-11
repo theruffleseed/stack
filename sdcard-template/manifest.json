@@ -1,5 +1,11 @@
 {
-  "cards": [],
+  "cards": [
+    {"name": "EMART", "image": "cards/emart.bmp"},
+    {"name": "TAKIONG", "image": "cards/takiong.bmp"},
+    {"name": "AMAZING PETS", "image": "cards/amazing_pets.bmp"},
+    {"name": "SK HARDWARE", "image": "cards/sk_hardware.bmp"},
+    {"name": "JOM PHARMACY", "image": "cards/jom_pharmacy.bmp"}
+  ],
   "tickets": [],
   "books": [],
   "duitnow_qr": "qr/duitnow.bmp",
