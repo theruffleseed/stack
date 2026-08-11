@@ -14,15 +14,17 @@ starting point:
 ├── manifest.json      <- lists what's in cards/, tickets/, books/, and qr/
 ├── todo.txt            <- the to-do list
 ├── wifi.json            <- copy from wifi.json.example and fill in (see OTA.md)
-├── cards/*.bmp          <- loyalty card barcodes/QRs, 800x480 1-bit BMP
-├── tickets/*.bmp        <- flight ticket barcodes/QRs, 800x480 1-bit BMP
-├── qr/duitnow.bmp        <- static "receive funds" QR, 800x480 1-bit BMP
+├── cards/*.bmp          <- loyalty card barcodes/QRs, 480x800 1-bit BMP
+├── tickets/*.bmp        <- flight ticket barcodes/QRs, 480x800 1-bit BMP
+├── qr/duitnow.bmp        <- static "receive funds" QR, 480x800 1-bit BMP
 └── books/*.txt           <- plain-text e-books, paginated on-device
 ```
 
-Images **must** be 800x480, 1-bit (monochrome) BMP - that's what the
-panel's `GUI_ReadBmp()` loader expects. Use `tools/make_bmp.py` (below)
-rather than exporting BMPs by hand; it produces exactly the right format.
+Images **must** be 480x800 (portrait), 1-bit (monochrome) BMP - that's what
+the panel's `GUI_ReadBmp()` loader expects in the firmware's default
+orientation (see `DISPLAY_ROTATE` in `firmware/StackWallet/config.h`). Use
+`tools/make_bmp.py` (below) rather than exporting BMPs by hand; it produces
+exactly the right format and dimensions.
 
 ## manifest.json
 
@@ -56,7 +58,7 @@ hand-edit `manifest.json` afterward.
 ## Generating card / ticket / QR images
 
 `tools/make_bmp.py` turns a barcode value, QR payload, or existing image
-into a properly-formatted 800x480 1-bit BMP:
+into a properly-formatted 480x800 1-bit BMP:
 
 ```sh
 pip install -r tools/requirements.txt

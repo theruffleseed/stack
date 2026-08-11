@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Generate 1-bit BMPs for the Stack Wallet e-ink panel (800x480).
+"""Generate 1-bit BMPs for the Stack Wallet e-ink panel (480x800 portrait).
 
 Produces BMP files in the exact format the on-device GUI_ReadBmp() loader
 expects: a standard Windows BMP, 1 bit per pixel, with a 2-entry monochrome
 palette. Pillow's own BMP writer for mode "1" images already matches this
-format, so this script just composes artwork onto an 800x480 canvas and
+format, so this script just composes artwork onto a 480x800 canvas and
 dithers it down to 1-bit before saving.
+
+The canvas is portrait (480 wide, 800 tall) to match the firmware's default
+DISPLAY_ROTATE (config.h) - GUI_ReadBmp() auto-selects its rotation from a
+BMP's dimensions, and 480x800 is what triggers the rotate-90 branch that
+matches the rest of the UI. If you change DISPLAY_ROTATE in the firmware,
+regenerate assets to match (see config.h's comment for why rotation and
+BMP dimensions have to agree).
 
 Examples:
   make_bmp.py image starbucks-logo.png cards/starbucks.bmp
@@ -18,8 +25,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-PANEL_WIDTH = 800
-PANEL_HEIGHT = 480
+PANEL_WIDTH = 480
+PANEL_HEIGHT = 800
 
 
 def save_1bit_bmp(canvas: Image.Image, out_path: Path) -> None:

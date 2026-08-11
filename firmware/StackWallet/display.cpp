@@ -1,4 +1,5 @@
 #include "display.h"
+#include "config.h"
 #include "EPD_3in97.h"
 #include "GUI_Paint.h"
 
@@ -27,9 +28,10 @@ void begin() {
         }
     }
 
-    Paint_NewImage(frameBuffer, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT, ROTATE_0, WHITE);
+    Paint_NewImage(frameBuffer, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT, DISPLAY_ROTATE, WHITE);
     Paint_SetScale(2);
     Paint_SelectImage(frameBuffer);
+    Paint_SetMirroring(DISPLAY_MIRROR);
     Paint_Clear(WHITE);
     Serial.println("Display::begin: done");
 }
@@ -64,11 +66,11 @@ void sleep() {
 }
 
 uint16_t width() {
-    return EPD_3IN97_WIDTH;
+    return (DISPLAY_ROTATE == 90 || DISPLAY_ROTATE == 270) ? EPD_3IN97_HEIGHT : EPD_3IN97_WIDTH;
 }
 
 uint16_t height() {
-    return EPD_3IN97_HEIGHT;
+    return (DISPLAY_ROTATE == 90 || DISPLAY_ROTATE == 270) ? EPD_3IN97_WIDTH : EPD_3IN97_HEIGHT;
 }
 
 } // namespace Display

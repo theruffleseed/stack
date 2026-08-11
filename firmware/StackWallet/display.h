@@ -32,6 +32,10 @@ void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 // (implicitly done by beginFrame() family) before drawing after waking.
 void sleep();
 
+// Logical drawable width/height, i.e. after DISPLAY_ROTATE (config.h) is
+// applied - 480x800 in the default portrait orientation, not the panel's
+// raw 800x480 memory layout. All screen layout code should use these
+// rather than the EPD_3IN97_WIDTH/HEIGHT constants directly.
 uint16_t width();
 uint16_t height();
 

@@ -13,10 +13,15 @@ and `i2c_bsp` components.
 
 ## Display
 
-- Panel: 3.97", 800x480, black/white (4-gray also supported by the vendored
-  driver but not currently used by the firmware)
+- Panel: 3.97", 800x480 native resolution, black/white (4-gray also
+  supported by the vendored driver but not currently used by the firmware)
 - Driven by the vendored `EPD_3in97` + `GUI_Paint` driver (bit-banged SPI,
   not the Arduino `SPI` class)
+- Rendered in **portrait** (480x800, chin at the bottom) by default via
+  `DISPLAY_ROTATE` in `firmware/StackWallet/config.h` - the panel's own
+  scan direction is unchanged, GUI_Paint remaps drawing coordinates. If the
+  chin lands on the wrong edge for your unit, flip `DISPLAY_MIRROR` in that
+  same file rather than the rotation (see the comment there for why).
 
 | Signal | GPIO |
 |--------|------|

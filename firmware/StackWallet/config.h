@@ -50,3 +50,20 @@
 // ---------------------------------------------------------------------------
 #define MANIFEST_PATH "/manifest.json"
 #define TODO_PATH "/todo.txt"
+
+// ---------------------------------------------------------------------------
+// Display orientation: portrait, chin (buttons/USB-C) at the bottom.
+//
+// DISPLAY_ROTATE must stay 90 (GUI_Paint.h's ROTATE_90): card/ticket/QR BMPs
+// are generated at 480x800 (see tools/make_bmp.py), and GUI_ReadBmp() picks
+// its own rotation from a BMP's dimensions - 480x800 auto-selects rotate-90.
+// Setting DISPLAY_ROTATE to anything else would leave the menu/list screens
+// in one rotation and loaded card/ticket images in another.
+//
+// If the chin lands on the wrong edge on your board, flip DISPLAY_MIRROR to
+// 0x03 (GUI_Paint.h's MIRROR_ORIGIN, a 180-degree flip) instead - mirroring
+// is applied after rotation and GUI_ReadBmp() never touches it, so it stays
+// consistent across every screen including loaded BMPs.
+// ---------------------------------------------------------------------------
+#define DISPLAY_ROTATE 90   // GUI_Paint.h ROTATE_90
+#define DISPLAY_MIRROR 0x00 // GUI_Paint.h MIRROR_NONE (0x03 = MIRROR_ORIGIN)
