@@ -104,6 +104,7 @@ const int kFooterH = 26;   // hint line + rule at the bottom
 const int kRowH = 34;      // standard list row (Font16 + padding)
 const int kListTop = kHeaderH + 12;
 const int kEdge = 14;      // horizontal margin used by headers/footers/rows
+const int kAccentW = 8;    // width of the left accent bar on the selected row
 
 int textWidth(const char *s, const sFONT &font) {
     return strlen(s) * font.Width;
@@ -274,29 +275,30 @@ void drawHomeScreen() {
     // Divider between the masthead and the menu
     Paint_DrawLine(24, 76, W - 24, 76, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
-    // Menu rows: icon + label + caption + chevron; selected row inverted.
+    // Menu rows: icon + label + caption + chevron; the selected row gets a
+    // left accent bar (text stays black on white for crisp e-ink rendering).
     const int rowH = 74;
     const int y0 = 86;
     for (int i = 0; i < kHomeMenuCount; i++) {
         const int y = y0 + i * rowH;
         const bool sel = (i == homeState.selected);
-        const UWORD fg = sel ? WHITE : BLACK;
-        const UWORD bg = sel ? BLACK : WHITE;
 
         if (sel) {
-            Paint_DrawRectangle(8, y, W - 8, y + rowH - 8, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawRectangle(8, y + 8, 8 + kAccentW + 4, y + rowH - 8, BLACK, DOT_PIXEL_1X1,
+                                DRAW_FILL_FULL);
         }
 
-        drawIcon(kHomeMenu[i].icon, 18, y + (rowH - 8 - 32) / 2, fg);
-        Paint_DrawString_EN(64, y + 12, kHomeMenu[i].label, &Font20, fg, bg);
-        Paint_DrawString_EN(64, y + 12 + Font20.Height + 5, kHomeMenu[i].caption, &Font12, fg, bg);
+        drawIcon(kHomeMenu[i].icon, 18, y + (rowH - 8 - 32) / 2, BLACK);
+        Paint_DrawString_EN(64, y + 12, kHomeMenu[i].label, &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(64, y + 12 + Font20.Height + 5, kHomeMenu[i].caption, &Font12, BLACK,
+                            WHITE);
 
         // Chevron
         const int cy = y + (rowH - 8) / 2;
-        Paint_DrawLine(W - 34, cy - 6, W - 26, cy, fg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-        Paint_DrawLine(W - 34, cy + 6, W - 26, cy, fg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(W - 34, cy - 6, W - 26, cy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(W - 34, cy + 6, W - 26, cy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
-        // Row separator (below the selection fill, so it stays visible)
+        // Row separator
         if (i < kHomeMenuCount - 1) {
             Paint_DrawLine(8, y + rowH - 4, W - 8, y + rowH - 4, BLACK, DOT_PIXEL_1X1,
                            LINE_STYLE_SOLID);
@@ -313,14 +315,16 @@ void drawHomeScreen() {
 
 void drawListRow(bool sel, const String &text, int y) {
     const int W = Display::width();
+    // Selection is a left accent bar, not an inverted fill: text stays black
+    // on white so it renders crisply on e-ink fast refreshes.
     if (sel) {
-        Paint_DrawRectangle(8, y, W - 8, y + kRowH - 4, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-        Paint_DrawString_EN(kEdge, y + 8, text.c_str(), &Font16, WHITE, BLACK);
-    } else {
-        Paint_DrawString_EN(kEdge, y + 8, text.c_str(), &Font16, BLACK, WHITE);
-        Paint_DrawLine(kEdge, y + kRowH - 2, W - kEdge, y + kRowH - 2, BLACK, DOT_PIXEL_1X1,
-                       LINE_STYLE_SOLID);
+        Paint_DrawRectangle(8, y + 5, 8 + kAccentW, y + kRowH - 9, BLACK, DOT_PIXEL_1X1,
+                            DRAW_FILL_FULL);
     }
+    Paint_DrawString_EN(sel ? kEdge + kAccentW + 6 : kEdge, y + 8, text.c_str(), &Font16, BLACK,
+                        WHITE);
+    Paint_DrawLine(kEdge, y + kRowH - 2, W - kEdge, y + kRowH - 2, BLACK, DOT_PIXEL_1X1,
+                   LINE_STYLE_SOLID);
 }
 
 void drawListScreen(const char *title, const std::vector<String> &items, const ListState &st,
@@ -437,30 +441,27 @@ void drawTodoScreen() {
             if (idx >= (int)todoItems.size()) break;
             const int y = kListTop + i * kRowH;
             const bool sel = (idx == todoState.selected);
-            const UWORD fg = sel ? WHITE : BLACK;
+            const int cx = sel ? kEdge + kAccentW + 6 : kEdge;
 
             if (sel) {
-                Paint_DrawRectangle(8, y, Display::width() - 8, y + kRowH - 4, BLACK,
-                                    DOT_PIXEL_1X1, DRAW_FILL_FULL);
+                Paint_DrawRectangle(8, y + 5, 8 + kAccentW, y + kRowH - 9, BLACK, DOT_PIXEL_1X1,
+                                    DRAW_FILL_FULL);
             }
 
             // Checkbox glyph: outlined box, ticked when done
-            Paint_DrawRectangle(kEdge, y + 10, kEdge + 11, y + 21, fg, DOT_PIXEL_1X1,
+            Paint_DrawRectangle(cx, y + 10, cx + 11, y + 21, BLACK, DOT_PIXEL_1X1,
                                 DRAW_FILL_EMPTY);
             if (todoItems[idx].done) {
-                Paint_DrawLine(kEdge + 2, y + 15, kEdge + 5, y + 18, fg, DOT_PIXEL_1X1,
+                Paint_DrawLine(cx + 2, y + 15, cx + 5, y + 18, BLACK, DOT_PIXEL_1X1,
                                LINE_STYLE_SOLID);
-                Paint_DrawLine(kEdge + 5, y + 18, kEdge + 9, y + 12, fg, DOT_PIXEL_1X1,
+                Paint_DrawLine(cx + 5, y + 18, cx + 9, y + 12, BLACK, DOT_PIXEL_1X1,
                                LINE_STYLE_SOLID);
             }
 
-            Paint_DrawString_EN(kEdge + 18, y + 8, todoItems[idx].text.c_str(), &Font16, fg,
-                                sel ? BLACK : WHITE);
-
-            if (!sel) {
-                Paint_DrawLine(kEdge, y + kRowH - 2, Display::width() - kEdge, y + kRowH - 2,
-                               BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-            }
+            Paint_DrawString_EN(cx + 18, y + 8, todoItems[idx].text.c_str(), &Font16, BLACK,
+                                WHITE);
+            Paint_DrawLine(kEdge, y + kRowH - 2, Display::width() - kEdge, y + kRowH - 2, BLACK,
+                           DOT_PIXEL_1X1, LINE_STYLE_SOLID);
         }
     }
 
