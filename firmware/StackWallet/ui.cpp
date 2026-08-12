@@ -4,7 +4,6 @@
 #include "ota.h"
 #include "storage.h"
 #include "version.h"
-#include "weather.h"
 #include "wifi_provision.h"
 
 #include "GUI_BMPfile.h"
@@ -255,13 +254,6 @@ String homeStatusLine() {
     s += Storage::isMounted() ? "SD on" : "SD missing";
     s += "   FW ";
     s += STACK_WALLET_VERSION;
-    if (Weather::isAvailable()) {
-        s += "   ";
-        s += String((int)Weather::temperature());
-        s += "C  ";
-        s += String((int)Weather::humidity());
-        s += "%";
-    }
     return s;
 }
 
