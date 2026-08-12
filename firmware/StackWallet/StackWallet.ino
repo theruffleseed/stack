@@ -7,6 +7,7 @@
 #include "storage.h"
 #include "ui.h"
 #include "version.h"
+#include "weather.h"
 #include "wifi_provision.h"
 
 #include <WiFi.h>
@@ -69,10 +70,15 @@ void setup() {
     connectWiFi(8000);
     OTA::begin();
 
+    if (!Weather::begin()) {
+        Serial.println("Weather: unavailable (SHTC3 sensor not responding)");
+    }
+
     UI::begin();
 }
 
 void loop() {
     UI::loop();
     OTA::loop();
+    { float t, h; Weather::read(t, h); }
 }
