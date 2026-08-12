@@ -50,6 +50,10 @@ def main():
     if duitnow.exists():
         manifest["duitnow_qr"] = "qr/duitnow.bmp"
 
+    bizcard = root / "qr" / "card.bmp"
+    if bizcard.exists():
+        manifest["business_card"] = "qr/card.bmp"
+
     out_path = root / "manifest.json"
     out_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -58,6 +62,7 @@ def main():
     print(f"  tickets:    {len(manifest['tickets'])}")
     print(f"  books:      {len(manifest['books'])}")
     print(f"  duitnow_qr: {'yes' if 'duitnow_qr' in manifest else 'no'}")
+    print(f"  business_card: {'yes' if 'business_card' in manifest else 'no'}")
 
 
 if __name__ == "__main__":

@@ -68,6 +68,7 @@ enum Screen {
     SCREEN_TICKET_VIEW,
     SCREEN_TODO,
     SCREEN_QR,
+    SCREEN_BUSINESS,
     SCREEN_BOOKS,
     SCREEN_BOOK_READ,
     SCREEN_SETTINGS,
@@ -145,9 +146,9 @@ void moveSelection(ListState &st, int delta, int count) {
 // ---------------------------------------------------------------------------
 
 void drawHeader(const char *title) {
-    Paint_DrawRectangle(0, 0, Display::width() - 1, kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
-                        DRAW_FILL_FULL);
-    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, WHITE, BLACK);
+    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, BLACK, WHITE);
+    Paint_DrawLine(0, kHeaderH - 1, Display::width(), kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
+                   LINE_STYLE_SOLID);
 }
 
 void drawFooter(const char *hint) {
@@ -177,10 +178,10 @@ struct HomeEntry {
 };
 
 const HomeEntry kHomeMenu[] = {
-    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
-    {"Flight Tickets", "Boarding passes", ICON_TICKET, SCREEN_TICKETS},
-    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
     {"DuitNow QR", "Receive money", ICON_QR, SCREEN_QR},
+    {"Business Card", "Scan to save contact", ICON_CARD, SCREEN_BUSINESS},
+    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
+    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
     {"E-Book Reader", "Read from the card", ICON_BOOK, SCREEN_BOOKS},
     {"Settings", "Wi-Fi, updates, info", ICON_SETTINGS, SCREEN_SETTINGS},
 };
@@ -303,6 +304,21 @@ void drawHomeScreen() {
                            LINE_STYLE_SOLID);
         }
     }
+
+    // Owner banner at the foot of the screen: thin border box, contact and
+    // medical (+/cross) icon so a lost unit can be returned to its owner.
+    const int boxH = 76;
+    const int by = H - kFooterH - boxH - 14;
+    Paint_DrawRectangle(10, by, W - 10, by + boxH, BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+
+    // Plus/cross glyph, vertically centered next to the contact block.
+    const int cy = by + boxH / 2;
+    Paint_DrawRectangle(28, cy - 16, 36, cy + 16, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    Paint_DrawRectangle(20, cy - 6, 44, cy + 6, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+
+    Paint_DrawString_EN(56, by + 10, "Property of Ken - if found, kindly", &Font16, BLACK, WHITE);
+    Paint_DrawString_EN(56, by + 32, "contact 017 8088 700 - Bloodtype: B", &Font16, BLACK, WHITE);
+    Paint_DrawString_EN(56, by + 54, "Emergency Contact: Sai 016 518 5081", &Font16, BLACK, WHITE);
 
     drawFooter("UP/DOWN move   SELECT open");
     Display::endFrame(true);
@@ -667,6 +683,9 @@ void render() {
             break;
         case SCREEN_QR:
             drawDuitNowScreen();
+            break;
+        case SCREEN_BUSINESS:
+            showImage("Business Card", Storage::businessCardPath());
             break;
         case SCREEN_BOOKS:
             drawListScreen("E-Book Reader", namesOf(Storage::books()), booksState,

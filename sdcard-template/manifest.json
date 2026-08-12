@@ -1,15 +1,33 @@
 {
   "cards": [
-    {"name": "EMART", "image": "cards/emart.bmp"},
-    {"name": "TAKIONG", "image": "cards/takiong.bmp"},
-    {"name": "AMAZING PETS", "image": "cards/amazing_pets.bmp"},
-    {"name": "SK HARDWARE", "image": "cards/sk_hardware.bmp"},
-    {"name": "JOM PHARMACY", "image": "cards/jom_pharmacy.bmp"}
+    {
+      "name": "Amazing Pets",
+      "image": "cards/amazing_pets.bmp"
+    },
+    {
+      "name": "Emart",
+      "image": "cards/emart.bmp"
+    },
+    {
+      "name": "Jom Pharmacy",
+      "image": "cards/jom_pharmacy.bmp"
+    },
+    {
+      "name": "Sk Hardware",
+      "image": "cards/sk_hardware.bmp"
+    },
+    {
+      "name": "Takiong",
+      "image": "cards/takiong.bmp"
+    }
   ],
   "tickets": [],
   "books": [
-    {"name": "Odyssey", "file": "books/odyssey.txt"}
+    {
+      "name": "Odyssey",
+      "file": "books/odyssey.txt"
+    }
   ],
   "duitnow_qr": "qr/duitnow.bmp",
-  "duitnow_label": "Ken"
+  "business_card": "qr/card.bmp"
 }
