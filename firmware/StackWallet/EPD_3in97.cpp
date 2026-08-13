@@ -71,6 +71,14 @@ static void EPD_3IN97_SendData(UBYTE Data)
     DEV_Digital_Write(EPD_CS_PIN, 1);
 }
 
+static void EPD_3IN97_SendDataBlock(const UBYTE *Data, UDOUBLE len)
+{
+    DEV_Digital_Write(EPD_DC_PIN, 1);
+    DEV_Digital_Write(EPD_CS_PIN, 0);
+    DEV_SPI_WriteBlock(Data, len);
+    DEV_Digital_Write(EPD_CS_PIN, 1);
+}
+
 /******************************************************************************
 function :	Wait until the busy_pin goes LOW
 parameter:
@@ -97,15 +105,51 @@ static void EPD_3IN97_ReadBusy(void)
 }
 
 /******************************************************************************
+function :	Wait until the busy_pin goes LOW, without the fixed head-start
+            delay the stock routine adds before polling. For kick paths only
+            (0x20 already issued): waits for the update-asserted rising edge
+            (bounded), then for the release falling edge (bounded), so an
+            idle panel costs ~0ms instead of a blanket 100ms per kick.
+parameter:
+******************************************************************************/
+static void EPD_3IN97_ReadBusyNoPad(void)
+{
+    UDOUBLE waited_ms = 0;
+    const UDOUBLE rise_timeout_ms = 500;
+    const UDOUBLE fall_timeout_ms = 5000;
+
+    while (DEV_Digital_Read(EPD_BUSY_PIN) == 0 && waited_ms < rise_timeout_ms) {
+        DEV_Delay_ms(1);
+        waited_ms += 1;
+    }
+
+    waited_ms = 0;
+    while (DEV_Digital_Read(EPD_BUSY_PIN) == 1) {
+        DEV_Delay_ms(10);
+        waited_ms += 10;
+        if (waited_ms >= fall_timeout_ms) {
+            Debug("e-Paper busy TIMEOUT - BUSY (GPIO3) never went low, check panel power/wiring\r\n");
+            return;
+        }
+    }
+    Debug("e-Paper busy release\r\n");
+}
+
+/******************************************************************************
 function :	Turn On Display full
 parameter:
 ******************************************************************************/
 static void EPD_3IN97_TurnOnDisplay(void)
 {
+    // 0x1A=0x6A (fast temperature compensation, as in Init_Fast) is
+    // experimental: it shortens the full-refresh waveform's busy time at the
+    // cost of potentially more ghosting on overall image refreshes.
+    EPD_3IN97_SendCommand(0x1A);
+    EPD_3IN97_SendData(0x6A);
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xF7);
 	EPD_3IN97_SendCommand(0x20);
-    EPD_3IN97_ReadBusy();
+    EPD_3IN97_ReadBusyNoPad();
 }
 
 static void EPD_3IN97_TurnOnDisplay_Fast(void)
@@ -113,7 +157,7 @@ static void EPD_3IN97_TurnOnDisplay_Fast(void)
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xD7);
 	EPD_3IN97_SendCommand(0x20);
-    EPD_3IN97_ReadBusy();
+    EPD_3IN97_ReadBusyNoPad();
 }
 
 static void EPD_3IN97_TurnOnDisplay_4GRAY(void)
@@ -121,7 +165,7 @@ static void EPD_3IN97_TurnOnDisplay_4GRAY(void)
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xD7);
 	EPD_3IN97_SendCommand(0x20);
-    EPD_3IN97_ReadBusy();
+    EPD_3IN97_ReadBusyNoPad();
 }
 
 static void EPD_3IN97_TurnOnDisplay_Part(void)
@@ -129,7 +173,7 @@ static void EPD_3IN97_TurnOnDisplay_Part(void)
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xFF);
     EPD_3IN97_SendCommand(0x20);
-    EPD_3IN97_ReadBusy();
+    EPD_3IN97_ReadBusyNoPad();
 }
 
 /******************************************************************************
@@ -307,19 +351,14 @@ void EPD_3IN97_Clear(void)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0XFF);
     }
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0XFF);
     }
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -330,19 +369,14 @@ void EPD_3IN97_Clear_Black(void)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0X00);
     }
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0X00);
     }
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -374,20 +408,11 @@ void EPD_3IN97_Display_Base(const UBYTE *Image)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
 
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -398,12 +423,8 @@ void EPD_3IN97_Display_Fast(const UBYTE *Image)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
+
     EPD_3IN97_TurnOnDisplay_Fast();
 }
 
@@ -547,6 +568,73 @@ void EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, U
 	}
 
 	EPD_3IN97_TurnOnDisplay_Part();
+}
+
+/******************************************************************************
+function :	Differential full-frame partial refresh
+parameter:
+    OldImage : the frame currently shown (RAM 0x26 baseline)
+    NewImage : the new frame (RAM 0x24)
+Info    :
+    SSD1677 differential update. Earlier attempts (v0.1.14-v0.1.17) that
+    declared their own RAM window or reset the chip desynced the 0x24/0x26
+    gate traversal from this panel's reversed-gate layout and sprayed noise.
+    This variant re-asserts the EXACT register state EPD_3IN97_Init() leaves
+    (0x11=0x01 x-inc/y-dec, 0x44 full X, 0x45 end-first full Y, counters 0) -
+    the same state the known-good full refresh EPD_3IN97_Display_Base writes
+    its frames with - so both RAM banks use identical, verified gate mapping.
+    The baseline frame is written to 0x26 from a caller-supplied copy of the
+    last pushed frame, the new frame to 0x24, then the panel is kicked with
+    GxEPD2's partial LUT for this exact panel (GDEM0397T81, _Update_Part):
+    0x21=0x00,0x00 (RED normal) + 0x22=0xFC, and BUSY is waited out.
+    EXPERIMENTAL: 0x1A=0x6A (fast temperature compensation, the value
+    WaveShare's fast mode uses) is written before the kick to try to cut the
+    partial waveform's busy time. 0x3C is deliberately left at Init's 0x01
+    (GxEPD2 does not touch it for partials).
+******************************************************************************/
+void EPD_3IN97_DisplayPartial_Diff(const UBYTE *OldImage, const UBYTE *NewImage)
+{
+    UWORD Width, Height;
+    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
+    Height = EPD_3IN97_HEIGHT;
+
+    EPD_3IN97_SendCommand(0x11); //data entry mode - same as Init
+    EPD_3IN97_SendData(0x01);    //x increase, y decrease
+
+    EPD_3IN97_SendCommand(0x44); //set Ram-X address start/end position (full)
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH-1)%256);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH-1)/256);
+
+    EPD_3IN97_SendCommand(0x45); //set Ram-Y address start/end position (full)
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT-1)%256);
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT-1)/256);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+
+    EPD_3IN97_SendCommand(0x4E); //set RAM x address counter to 0
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendCommand(0x4F); //set RAM y address counter to 0
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+
+    EPD_3IN97_SendCommand(0x26); //baseline: what is currently shown
+    EPD_3IN97_SendDataBlock(OldImage, (UDOUBLE)Width * Height);
+
+    EPD_3IN97_SendCommand(0x24); //new frame
+    EPD_3IN97_SendDataBlock(NewImage, (UDOUBLE)Width * Height);
+
+    EPD_3IN97_SendCommand(0x21); //display update control: RED normal, single panel
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendCommand(0x1A); //temperature register: fast waveform (experimental)
+    EPD_3IN97_SendData(0x6A);
+    EPD_3IN97_SendCommand(0x22); //display update sequence: partial LUT
+    EPD_3IN97_SendData(0xFC);
+    EPD_3IN97_SendCommand(0x20);
+    EPD_3IN97_ReadBusyNoPad();
 }
 
 void EPD_3IN97_Display_4Gray(const UBYTE *Image)

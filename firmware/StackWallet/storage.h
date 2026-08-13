@@ -37,6 +37,8 @@ const String &duitnowQrPath();
 // Optional display name of the receive account ("duitnow_label" in the
 // manifest). Empty string if not configured.
 const String &duitnowLabel();
+// Empty string if no business card image is configured in the manifest.
+const String &businessCardPath();
 
 std::vector<TodoItem> loadTodo();
 bool saveTodo(const std::vector<TodoItem> &items);

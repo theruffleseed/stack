@@ -69,18 +69,6 @@
 #define DISPLAY_MIRROR 0x03 // GUI_Paint.h MIRROR_ORIGIN (0x00 = MIRROR_NONE) - confirmed needed on this unit: screen was upside down at 0x00
 
 // ---------------------------------------------------------------------------
-// I2C bus (SDA=41, SCL=42): shared by the SHTC3 temp/humidity sensor
-// (0x70), PCF85063 RTC (0x51), and AXP2101 PMU (0x34) — all confirmed on
-// this board's schematic and Waveshare's ESP-IDF BSP.
-// ---------------------------------------------------------------------------
-#define I2C_SDA_PIN 41
-#define I2C_SCL_PIN 42
-#define SHTC3_I2C_ADDR 0x70
-#ifndef WEATHER_READ_INTERVAL_MS
-#define WEATHER_READ_INTERVAL_MS 5000
-#endif
-
-// ---------------------------------------------------------------------------
 // Wi-Fi setup portal (Settings > Wi-Fi Setup): a temporary open AP + web
 // page for entering credentials from a phone with no SD card or cable
 // needed. See wifi_provision.h for where credentials end up stored.

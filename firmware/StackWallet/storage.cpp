@@ -15,6 +15,7 @@ std::vector<ContentItem> ticketsList;
 std::vector<ContentItem> booksList;
 String duitnowPath;
 String duitnowLabelText;
+String businessPath;
 
 // Diagnostic: print every entry in the card root with its exact byte length
 // and type. Windows can hide trailing spaces/unicode look-alikes in file
@@ -140,6 +141,7 @@ bool loadManifest() {
     booksList.clear();
     duitnowPath = "";
     duitnowLabelText = "";
+    businessPath = "";
 
     if (!mounted) return false;
 
@@ -176,6 +178,9 @@ bool loadManifest() {
         duitnowPath = joinPath(doc["duitnow_qr"].as<String>());
     }
     duitnowLabelText = doc["duitnow_label"].as<String>();
+    if (doc["business_card"].is<const char *>()) {
+        businessPath = joinPath(doc["business_card"].as<String>());
+    }
 
     return true;
 }
@@ -198,6 +203,10 @@ const String &duitnowQrPath() {
 
 const String &duitnowLabel() {
     return duitnowLabelText;
+}
+
+const String &businessCardPath() {
+    return businessPath;
 }
 
 std::vector<TodoItem> loadTodo() {

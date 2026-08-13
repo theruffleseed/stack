@@ -18,6 +18,7 @@ Examples:
   make_bmp.py image starbucks-logo.png cards/starbucks.bmp
   make_bmp.py barcode 012345678905 cards/starbucks.bmp --type ean13 --show-text
   make_bmp.py qr "00020101021226..." qr/duitnow.bmp --label "Scan to pay"
+  make_bmp.py card card-back.png qr/card.bmp --qr-data "BEGIN:VCARD..."
 """
 import argparse
 import io
@@ -104,6 +105,40 @@ def cmd_qr(args):
     save_1bit_bmp(canvas, Path(args.output))
 
 
+def cmd_card(args):
+    import qrcode
+
+    card = Image.open(args.input).convert("L")
+    card.thumbnail((PANEL_WIDTH - 2 * args.margin, 620), Image.LANCZOS)
+    card_x = (PANEL_WIDTH - card.width) // 2
+    card_y = args.top
+
+    canvas = blank_canvas()
+    canvas.paste(card, (card_x, card_y))
+
+    # Divider under the card, then the caption and the contact QR below it.
+    draw = ImageDraw.Draw(canvas)
+    divider_y = card_y + card.height + args.divider_gap
+    draw.line([(args.margin, divider_y), (PANEL_WIDTH - args.margin, divider_y)], fill=0,
+              width=2)
+
+    label_y = divider_y + args.label_gap
+    if args.label:
+        draw_centered_label(canvas, args.label, args.label_size, label_y)
+
+    qr = qrcode.QRCode(border=4, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(args.qr_data)
+    qr.make(fit=True)
+    buf = io.BytesIO()
+    qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+    buf.seek(0)
+    qr_img = Image.open(buf)
+    qr_img = qr_img.resize((args.qr_size, args.qr_size), Image.LANCZOS)
+    canvas.paste(qr_img, ((PANEL_WIDTH - args.qr_size) // 2, args.qr_y))
+
+    save_1bit_bmp(canvas, Path(args.output))
+
+
 def cmd_barcode(args):
     import barcode
     from barcode.writer import ImageWriter
@@ -146,6 +181,25 @@ def main():
     p_qr.add_argument("--label", default="")
     p_qr.add_argument("--label-size", type=int, default=28)
     p_qr.set_defaults(func=cmd_qr)
+
+    p_card = sub.add_parser("card",
+                            help="Composite a business-card image with a contact QR below it")
+    p_card.add_argument("input", help="path to the card image (any Pillow-readable format)")
+    p_card.add_argument("output")
+    p_card.add_argument("--qr-data", required=True,
+                        help="QR payload (e.g. a vCard/VCARD or MECARD contact string)")
+    p_card.add_argument("--qr-size", type=int, default=360,
+                        help="scannable QR box in px (incl. quiet zone)")
+    p_card.add_argument("--qr-y", type=int, default=350, help="top edge of the QR box")
+    p_card.add_argument("--margin", type=int, default=24)
+    p_card.add_argument("--top", type=int, default=20)
+    p_card.add_argument("--divider-gap", type=int, default=18,
+                        help="gap between the card bottom and the divider")
+    p_card.add_argument("--label-gap", type=int, default=12,
+                        help="gap between the divider and the caption")
+    p_card.add_argument("--label", default="Scan the QR to save my contact")
+    p_card.add_argument("--label-size", type=int, default=26)
+    p_card.set_defaults(func=cmd_card)
 
     p_bc = sub.add_parser("barcode", help="Render a 1D barcode (loyalty cards)")
     p_bc.add_argument("value")

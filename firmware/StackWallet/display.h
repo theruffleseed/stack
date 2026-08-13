@@ -24,6 +24,12 @@ void beginFrame();
 // screen; draw only inside the region you will update.
 void beginPartialDraw();
 
+// Clears the RAM buffer for drawing WITHOUT re-initializing the panel
+// (unlike beginFrame(), which resets the controller every call). Intended
+// for consecutive differential partials (partialFullFrame), whose writer
+// re-asserts the controller's window/counters itself.
+void beginPartialFrame();
+
 // Pushes the frame buffer to the panel. `fast` uses the panel's quick LUT
 // (a couple hundred ms, minor ghosting); pass false for a clean full-quality
 // refresh (~1-2s) after several fast refreshes to clear ghosting. Every
@@ -34,6 +40,14 @@ void endFrame(bool fast = true);
 // Partial refresh of a sub-rectangle of the current frame buffer content.
 // Much faster than endFrame(); used for small updates like a todo checkbox.
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+
+// Differential partial refresh of the whole frame: writes a saved copy of
+// the last pushed frame as the RAM baseline (0x26), the new frame to 0x24,
+// then kicks the panel with the partial LUT so only changed pixels are
+// driven - no full-screen flash like endFrame(fast). The internal baseline
+// is re-synced so consecutive calls stay differential. Same gate mapping as
+// the regular full refresh (reuses EPD_3IN97_Init's register state).
+void partialFullFrame();
 
 // Puts the panel into deep sleep (near-zero current draw). The image
 // persists on an e-paper panel while asleep. Call EPD_3IN97_Init() again

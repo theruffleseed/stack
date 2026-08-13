@@ -4,7 +4,6 @@
 #include "ota.h"
 #include "storage.h"
 #include "version.h"
-#include "weather.h"
 #include "wifi_provision.h"
 
 #include "GUI_BMPfile.h"
@@ -69,6 +68,7 @@ enum Screen {
     SCREEN_TICKET_VIEW,
     SCREEN_TODO,
     SCREEN_QR,
+    SCREEN_BUSINESS,
     SCREEN_BOOKS,
     SCREEN_BOOK_READ,
     SCREEN_SETTINGS,
@@ -146,9 +146,9 @@ void moveSelection(ListState &st, int delta, int count) {
 // ---------------------------------------------------------------------------
 
 void drawHeader(const char *title) {
-    Paint_DrawRectangle(0, 0, Display::width() - 1, kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
-                        DRAW_FILL_FULL);
-    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, WHITE, BLACK);
+    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, BLACK, WHITE);
+    Paint_DrawLine(0, kHeaderH - 1, Display::width(), kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
+                   LINE_STYLE_SOLID);
 }
 
 void drawFooter(const char *hint) {
@@ -178,10 +178,10 @@ struct HomeEntry {
 };
 
 const HomeEntry kHomeMenu[] = {
-    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
-    {"Flight Tickets", "Boarding passes", ICON_TICKET, SCREEN_TICKETS},
-    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
     {"DuitNow QR", "Receive money", ICON_QR, SCREEN_QR},
+    {"Business Card", "Scan to save contact", ICON_CARD, SCREEN_BUSINESS},
+    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
+    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
     {"E-Book Reader", "Read from the card", ICON_BOOK, SCREEN_BOOKS},
     {"Settings", "Wi-Fi, updates, info", ICON_SETTINGS, SCREEN_SETTINGS},
 };
@@ -255,20 +255,23 @@ String homeStatusLine() {
     s += Storage::isMounted() ? "SD on" : "SD missing";
     s += "   FW ";
     s += STACK_WALLET_VERSION;
-    if (Weather::isAvailable()) {
-        s += "   ";
-        s += String((int)Weather::temperature());
-        s += "C  ";
-        s += String((int)Weather::humidity());
-        s += "%";
-    }
     return s;
 }
 
-void drawHomeScreen() {
+// When true, the next home render is pushed with the differential partial
+// refresh so the selection accent bar moves without a full-panel flash.
+bool homePartialPending = false;
+
+void drawHomeContent(bool initPanel) {
     const int W = Display::width();
     const int H = Display::height();
-    Display::beginFrame();
+    if (initPanel) {
+        Display::beginFrame();
+    } else {
+        // Consecutive menu moves: the panel was already initialized by the
+        // previous refresh, so skip the per-move reset for speed.
+        Display::beginPartialFrame();
+    }
 
     // Wordmark
     Paint_DrawString_EN(centerX("STACK WALLET", Font24), 20, "STACK WALLET", &Font24, BLACK,
@@ -312,7 +315,26 @@ void drawHomeScreen() {
         }
     }
 
+    // Owner banner at the foot of the screen: thin border box, contact and
+    // medical (+/cross) icon so a lost unit can be returned to its owner.
+    const int boxH = 76;
+    const int by = H - kFooterH - boxH - 14;
+    Paint_DrawRectangle(10, by, W - 10, by + boxH, BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+
+    // Plus/cross glyph, vertically centered next to the contact block.
+    const int cy = by + boxH / 2;
+    Paint_DrawRectangle(28, cy - 16, 36, cy + 16, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    Paint_DrawRectangle(20, cy - 6, 44, cy + 6, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+
+    Paint_DrawString_EN(56, by + 10, "Property of Ken - if found, kindly", &Font16, BLACK, WHITE);
+    Paint_DrawString_EN(56, by + 32, "contact 017 8088 700 - Bloodtype: B", &Font16, BLACK, WHITE);
+    Paint_DrawString_EN(56, by + 54, "Emergency Contact: Sai 016 518 5081", &Font16, BLACK, WHITE);
+
     drawFooter("UP/DOWN move   SELECT open");
+}
+
+void drawHomeScreen() {
+    drawHomeContent(true);
     Display::endFrame(true);
 }
 
@@ -652,7 +674,13 @@ void drawSettingsScreen() {
 void render() {
     switch (currentScreen) {
         case SCREEN_HOME:
-            drawHomeScreen();
+            if (homePartialPending) {
+                homePartialPending = false;
+                drawHomeContent(false);
+                Display::partialFullFrame();
+            } else {
+                drawHomeScreen();
+            }
             break;
         case SCREEN_CARDS:
             drawListScreen("Loyalty Cards", namesOf(Storage::cards()), cardsState,
@@ -676,6 +704,9 @@ void render() {
         case SCREEN_QR:
             drawDuitNowScreen();
             break;
+        case SCREEN_BUSINESS:
+            showImage("Business Card", Storage::businessCardPath());
+            break;
         case SCREEN_BOOKS:
             drawListScreen("E-Book Reader", namesOf(Storage::books()), booksState,
                            "No books on SD card. See docs/CONTENT.md.",
@@ -693,6 +724,7 @@ void render() {
 
 void goHome() {
     currentScreen = SCREEN_HOME;
+    homePartialPending = false;
     dirty = true;
 }
 
@@ -705,6 +737,7 @@ void handleUp() {
         case SCREEN_HOME:
             moveSelection(homeState, -1, kHomeMenuCount);
             dirty = true;
+            homePartialPending = true;
             break;
         case SCREEN_CARDS:
             moveSelection(cardsState, -1, Storage::cards().size());
@@ -751,6 +784,7 @@ void handleDown() {
         case SCREEN_HOME:
             moveSelection(homeState, 1, kHomeMenuCount);
             dirty = true;
+            homePartialPending = true;
             break;
         case SCREEN_CARDS:
             moveSelection(cardsState, 1, Storage::cards().size());
