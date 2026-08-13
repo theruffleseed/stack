@@ -549,6 +549,78 @@ void EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, U
 	EPD_3IN97_TurnOnDisplay_Part();
 }
 
+/******************************************************************************
+function :	Differential full-frame partial refresh
+parameter:
+    OldImage : the frame currently shown (RAM 0x26 baseline)
+    NewImage : the new frame (RAM 0x24)
+Info    :
+    SSD1677 differential update. Earlier attempts (v0.1.14-v0.1.17) that
+    declared their own RAM window or reset the chip desynced the 0x24/0x26
+    gate traversal from this panel's reversed-gate layout and sprayed noise.
+    This variant re-asserts the EXACT register state EPD_3IN97_Init() leaves
+    (0x11=0x01 x-inc/y-dec, 0x44 full X, 0x45 end-first full Y, counters 0) -
+    the same state the known-good full refresh EPD_3IN97_Display_Base writes
+    its frames with - so both RAM banks use identical, verified gate mapping.
+    The baseline frame is written to 0x26 from a caller-supplied copy of the
+    last pushed frame, the new frame to 0x24, then the panel is kicked with
+    GxEPD2's partial LUT for this exact panel (GDEM0397T81, _Update_Part):
+    0x21=0x00,0x00 (RED normal) + 0x22=0xFC, and BUSY is waited out. 0x3C is
+    deliberately left at Init's 0x01 (GxEPD2 does not touch it for partials).
+******************************************************************************/
+void EPD_3IN97_DisplayPartial_Diff(const UBYTE *OldImage, const UBYTE *NewImage)
+{
+    UWORD Width, Height;
+    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
+    Height = EPD_3IN97_HEIGHT;
+
+    EPD_3IN97_SendCommand(0x11); //data entry mode - same as Init
+    EPD_3IN97_SendData(0x01);    //x increase, y decrease
+
+    EPD_3IN97_SendCommand(0x44); //set Ram-X address start/end position (full)
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH-1)%256);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH-1)/256);
+
+    EPD_3IN97_SendCommand(0x45); //set Ram-Y address start/end position (full)
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT-1)%256);
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT-1)/256);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+
+    EPD_3IN97_SendCommand(0x4E); //set RAM x address counter to 0
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendCommand(0x4F); //set RAM y address counter to 0
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+
+    EPD_3IN97_SendCommand(0x26); //baseline: what is currently shown
+    for (UWORD j = 0; j < Height; j++) {
+        for (UWORD i = 0; i < Width; i++) {
+            EPD_3IN97_SendData(OldImage[i + j * Width]);
+        }
+        DEV_Delay_ms(1);
+    }
+
+    EPD_3IN97_SendCommand(0x24); //new frame
+    for (UWORD j = 0; j < Height; j++) {
+        for (UWORD i = 0; i < Width; i++) {
+            EPD_3IN97_SendData(NewImage[i + j * Width]);
+        }
+        DEV_Delay_ms(1);
+    }
+
+    EPD_3IN97_SendCommand(0x21); //display update control: RED normal, single panel
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendCommand(0x22); //display update sequence: partial LUT
+    EPD_3IN97_SendData(0xFC);
+    EPD_3IN97_SendCommand(0x20);
+    EPD_3IN97_ReadBusy();
+}
+
 void EPD_3IN97_Display_4Gray(const UBYTE *Image)
 {
     UDOUBLE i,j,k;

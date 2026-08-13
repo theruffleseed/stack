@@ -258,7 +258,11 @@ String homeStatusLine() {
     return s;
 }
 
-void drawHomeScreen() {
+// When true, the next home render is pushed with the differential partial
+// refresh so the selection accent bar moves without a full-panel flash.
+bool homePartialPending = false;
+
+void drawHomeContent() {
     const int W = Display::width();
     const int H = Display::height();
     Display::beginFrame();
@@ -321,6 +325,10 @@ void drawHomeScreen() {
     Paint_DrawString_EN(56, by + 54, "Emergency Contact: Sai 016 518 5081", &Font16, BLACK, WHITE);
 
     drawFooter("UP/DOWN move   SELECT open");
+}
+
+void drawHomeScreen() {
+    drawHomeContent();
     Display::endFrame(true);
 }
 
@@ -660,7 +668,13 @@ void drawSettingsScreen() {
 void render() {
     switch (currentScreen) {
         case SCREEN_HOME:
-            drawHomeScreen();
+            if (homePartialPending) {
+                homePartialPending = false;
+                drawHomeContent();
+                Display::partialFullFrame();
+            } else {
+                drawHomeScreen();
+            }
             break;
         case SCREEN_CARDS:
             drawListScreen("Loyalty Cards", namesOf(Storage::cards()), cardsState,
@@ -704,6 +718,7 @@ void render() {
 
 void goHome() {
     currentScreen = SCREEN_HOME;
+    homePartialPending = false;
     dirty = true;
 }
 
@@ -716,6 +731,7 @@ void handleUp() {
         case SCREEN_HOME:
             moveSelection(homeState, -1, kHomeMenuCount);
             dirty = true;
+            homePartialPending = true;
             break;
         case SCREEN_CARDS:
             moveSelection(cardsState, -1, Storage::cards().size());
@@ -762,6 +778,7 @@ void handleDown() {
         case SCREEN_HOME:
             moveSelection(homeState, 1, kHomeMenuCount);
             dirty = true;
+            homePartialPending = true;
             break;
         case SCREEN_CARDS:
             moveSelection(cardsState, 1, Storage::cards().size());

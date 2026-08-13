@@ -35,6 +35,14 @@ void endFrame(bool fast = true);
 // Much faster than endFrame(); used for small updates like a todo checkbox.
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 
+// Differential partial refresh of the whole frame: writes a saved copy of
+// the last pushed frame as the RAM baseline (0x26), the new frame to 0x24,
+// then kicks the panel with the partial LUT so only changed pixels are
+// driven - no full-screen flash like endFrame(fast). The internal baseline
+// is re-synced so consecutive calls stay differential. Same gate mapping as
+// the regular full refresh (reuses EPD_3IN97_Init's register state).
+void partialFullFrame();
+
 // Puts the panel into deep sleep (near-zero current draw). The image
 // persists on an e-paper panel while asleep. Call EPD_3IN97_Init() again
 // (implicitly done by beginFrame() family) before drawing after waking.

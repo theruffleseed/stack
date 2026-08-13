@@ -2,9 +2,11 @@
 #include "config.h"
 #include "EPD_3in97.h"
 #include "GUI_Paint.h"
+#include <string.h>
 
 namespace {
 UBYTE *frameBuffer = nullptr;
+UBYTE *prevFrame = nullptr;
 UDOUBLE frameBufferSize = 0;
 int fastRefreshesSinceClean = 0;
 const int kFastRefreshesBeforeClean = 5;
@@ -29,6 +31,15 @@ void begin() {
             delay(1000);
         }
     }
+
+    prevFrame = (UBYTE *)malloc(frameBufferSize);
+    if (prevFrame == nullptr) {
+        Serial.println("Display::begin: failed to allocate previous-frame buffer");
+        while (true) {
+            delay(1000);
+        }
+    }
+    memset(prevFrame, 0xFF, frameBufferSize); // baseline starts as a white screen
 
     Paint_NewImage(frameBuffer, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT, DISPLAY_ROTATE, WHITE);
     Paint_SetScale(2);
@@ -65,6 +76,9 @@ void endFrame(bool fast) {
         EPD_3IN97_Init();
         EPD_3IN97_Display_Base(frameBuffer);
     }
+    // Whatever was just pushed is now what the screen shows; keep it as the
+    // baseline for the next differential partial refresh.
+    memcpy(prevFrame, frameBuffer, frameBufferSize);
 }
 
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
@@ -95,6 +109,14 @@ void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
     uint16_t rowBytes = (EPD_3IN97_WIDTH + 7) / 8;
     const UBYTE *region = frameBuffer + (uint32_t)py0 * rowBytes + px0 / 8;
     EPD_3IN97_Display_Partial(region, px0, py0, px1, py1);
+}
+
+void partialFullFrame() {
+    // Differential full-frame refresh: baseline (RAM 0x26) is written from
+    // the last pushed frame, the new frame to 0x24, then the panel is driven
+    // with GxEPD2's partial LUT - changed pixels only, no full-screen flash.
+    EPD_3IN97_DisplayPartial_Diff(prevFrame, frameBuffer);
+    memcpy(prevFrame, frameBuffer, frameBufferSize);
 }
 
 void sleep() {
