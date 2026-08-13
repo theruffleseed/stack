@@ -28,6 +28,11 @@
 #
 ******************************************************************************/
 #include "DEV_Config.h"
+#include <SPI.h>
+
+namespace {
+SPISettings epdSpiSettings(EPD_SPI_CLOCK, MSBFIRST, SPI_MODE0);
+}
 
 void GPIO_Config(void)
 {
@@ -71,11 +76,10 @@ UBYTE DEV_Module_Init(void)
 	// interface on ESP32-S3, which can silently drop an already-connected
 	// Serial Monitor session with no error - so it's skipped.
 
-	// spi
-	// SPI.setDataMode(SPI_MODE0);
-	// SPI.setBitOrder(MSBFIRST);
-	// SPI.setClockDivider(SPI_CLOCK_DIV4);
-	// SPI.begin();
+	// Hardware SPI (FSPI, remapped through the GPIO matrix). No MISO - the
+	// panel is write-only - and no hardware CS: the EPD layer toggles CS
+	// manually around command/data phases.
+	SPI.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);
 
 	return 0;
 }
@@ -86,22 +90,23 @@ function:
 ******************************************************************************/
 void DEV_SPI_WriteByte(UBYTE data)
 {
-    //SPI.beginTransaction(spi_settings);
-    digitalWrite(EPD_CS_PIN, GPIO_PIN_RESET);
+    // Single bytes are command/register traffic; the per-byte transaction
+    // overhead is irrelevant there. Frame data goes through WriteBlock.
+    SPI.beginTransaction(epdSpiSettings);
+    SPI.transfer(data);
+    SPI.endTransaction();
+}
 
-    for (int i = 0; i < 8; i++)
-    {
-        if ((data & 0x80) == 0) digitalWrite(EPD_MOSI_PIN, GPIO_PIN_RESET); 
-        else                    digitalWrite(EPD_MOSI_PIN, GPIO_PIN_SET);
-
-        data <<= 1;
-        digitalWrite(EPD_SCK_PIN, GPIO_PIN_SET);     
-        digitalWrite(EPD_SCK_PIN, GPIO_PIN_RESET);
+void DEV_SPI_WriteBlock(const UBYTE *pData, UDOUBLE len)
+{
+    SPI.beginTransaction(epdSpiSettings);
+    while (len > 0) {
+        UDOUBLE chunk = len > 4096 ? 4096 : len;
+        SPI.writeBytes(pData, chunk);
+        pData += chunk;
+        len -= chunk;
     }
-
-    //SPI.transfer(data);
-    digitalWrite(EPD_CS_PIN, GPIO_PIN_SET);
-    //SPI.endTransaction();	
+    SPI.endTransaction();
 }
 
 UBYTE DEV_SPI_ReadByte()
@@ -125,8 +130,7 @@ UBYTE DEV_SPI_ReadByte()
 
 void DEV_SPI_Write_nByte(UBYTE *pData, UDOUBLE len)
 {
-    for (int i = 0; i < len; i++)
-        DEV_SPI_WriteByte(pData[i]);
+    DEV_SPI_WriteBlock(pData, len);
 }
 
 

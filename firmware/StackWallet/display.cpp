@@ -64,6 +64,14 @@ void beginPartialDraw() {
     Paint_SelectImage(frameBuffer);
 }
 
+void beginPartialFrame() {
+    // Like beginFrame() but without the EPD_3IN97_Init() reset: for a
+    // differential partial the controller keeps its state (the diff writer
+    // re-asserts its own window/counters), so only the RAM buffer is reset.
+    beginPartialDraw();
+    Paint_Clear(WHITE);
+}
+
 void endFrame(bool fast) {
     if (fast && ++fastRefreshesSinceClean >= kFastRefreshesBeforeClean) {
         fast = false; // enough quick updates; clear the ghosting with a clean refresh

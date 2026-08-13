@@ -262,10 +262,16 @@ String homeStatusLine() {
 // refresh so the selection accent bar moves without a full-panel flash.
 bool homePartialPending = false;
 
-void drawHomeContent() {
+void drawHomeContent(bool initPanel) {
     const int W = Display::width();
     const int H = Display::height();
-    Display::beginFrame();
+    if (initPanel) {
+        Display::beginFrame();
+    } else {
+        // Consecutive menu moves: the panel was already initialized by the
+        // previous refresh, so skip the per-move reset for speed.
+        Display::beginPartialFrame();
+    }
 
     // Wordmark
     Paint_DrawString_EN(centerX("STACK WALLET", Font24), 20, "STACK WALLET", &Font24, BLACK,
@@ -328,7 +334,7 @@ void drawHomeContent() {
 }
 
 void drawHomeScreen() {
-    drawHomeContent();
+    drawHomeContent(true);
     Display::endFrame(true);
 }
 
@@ -670,7 +676,7 @@ void render() {
         case SCREEN_HOME:
             if (homePartialPending) {
                 homePartialPending = false;
-                drawHomeContent();
+                drawHomeContent(false);
                 Display::partialFullFrame();
             } else {
                 drawHomeScreen();

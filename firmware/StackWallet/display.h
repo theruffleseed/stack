@@ -24,6 +24,12 @@ void beginFrame();
 // screen; draw only inside the region you will update.
 void beginPartialDraw();
 
+// Clears the RAM buffer for drawing WITHOUT re-initializing the panel
+// (unlike beginFrame(), which resets the controller every call). Intended
+// for consecutive differential partials (partialFullFrame), whose writer
+// re-asserts the controller's window/counters itself.
+void beginPartialFrame();
+
 // Pushes the frame buffer to the panel. `fast` uses the panel's quick LUT
 // (a couple hundred ms, minor ghosting); pass false for a clean full-quality
 // refresh (~1-2s) after several fast refreshes to clear ghosting. Every

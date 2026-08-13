@@ -53,6 +53,9 @@
 #define EPD_DC_PIN   9
 #define EPD_BUSY_PIN 3
 
+// Hardware SPI (FSPI) bit clock; the panel datasheet allows up to 20MHz.
+#define EPD_SPI_CLOCK 20000000
+
 /**
  * Enable it or not according to the actual hardware used, and the corresponding pin
  */
@@ -81,6 +84,7 @@ UBYTE DEV_Module_Init(void);
 void GPIO_Mode(UWORD GPIO_Pin, UWORD Mode);
 void DEV_SPI_WriteByte(UBYTE data);
 UBYTE DEV_SPI_ReadByte();
+void DEV_SPI_WriteBlock(const UBYTE *pData, UDOUBLE len);
 void DEV_SPI_Write_nByte(UBYTE *pData, UDOUBLE len);
 void DEV_Module_Exit(void);
 

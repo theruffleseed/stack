@@ -71,6 +71,14 @@ static void EPD_3IN97_SendData(UBYTE Data)
     DEV_Digital_Write(EPD_CS_PIN, 1);
 }
 
+static void EPD_3IN97_SendDataBlock(const UBYTE *Data, UDOUBLE len)
+{
+    DEV_Digital_Write(EPD_DC_PIN, 1);
+    DEV_Digital_Write(EPD_CS_PIN, 0);
+    DEV_SPI_WriteBlock(Data, len);
+    DEV_Digital_Write(EPD_CS_PIN, 1);
+}
+
 /******************************************************************************
 function :	Wait until the busy_pin goes LOW
 parameter:
@@ -307,19 +315,14 @@ void EPD_3IN97_Clear(void)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0XFF);
     }
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0XFF);
     }
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -330,19 +333,14 @@ void EPD_3IN97_Clear_Black(void)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0X00);
     }
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
+    for (UDOUBLE i = 0; i < (UDOUBLE)Width * Height; i++) {
+        EPD_3IN97_SendData(0X00);
     }
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -374,20 +372,11 @@ void EPD_3IN97_Display_Base(const UBYTE *Image)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
 
     EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
+
     EPD_3IN97_TurnOnDisplay();
 }
 
@@ -398,12 +387,8 @@ void EPD_3IN97_Display_Fast(const UBYTE *Image)
     Height = EPD_3IN97_HEIGHT;
 
     EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)Width * Height);
+
     EPD_3IN97_TurnOnDisplay_Fast();
 }
 
@@ -597,20 +582,10 @@ void EPD_3IN97_DisplayPartial_Diff(const UBYTE *OldImage, const UBYTE *NewImage)
     EPD_3IN97_SendData(0x00);
 
     EPD_3IN97_SendCommand(0x26); //baseline: what is currently shown
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(OldImage[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(OldImage, (UDOUBLE)Width * Height);
 
     EPD_3IN97_SendCommand(0x24); //new frame
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(NewImage[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
+    EPD_3IN97_SendDataBlock(NewImage, (UDOUBLE)Width * Height);
 
     EPD_3IN97_SendCommand(0x21); //display update control: RED normal, single panel
     EPD_3IN97_SendData(0x00);
