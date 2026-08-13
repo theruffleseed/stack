@@ -77,6 +77,53 @@ enum Screen {
 Screen currentScreen = SCREEN_HOME;
 bool dirty = true;
 
+// ---------------------------------------------------------------------------
+// Async refresh pipeline. Input handlers never draw directly - they update
+// state and then request either a full redraw (dirty) or a partial band
+// update (band). The loop starts the requested refresh only when the panel
+// is idle, so rapid presses during a refresh coalesce into ONE catch-up
+// update of the final state instead of queueing a storm of multi-second
+// blocking refreshes (which is what made navigation feel so laggy).
+// ---------------------------------------------------------------------------
+
+struct PartialBand {
+    bool valid = false;
+    Screen screen = SCREEN_HOME;
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0; // logical coords, inclusive
+};
+PartialBand band;
+
+// Book-reader page steps requested while a refresh was running.
+int readerPendingSteps = 0;
+// Deferred book open (SELECT on the books list while a refresh runs).
+int pendingBookIndex = -1;
+
+void queueFullRefresh() {
+    dirty = true;
+    band.valid = false;
+    readerPendingSteps = 0;
+}
+
+// Request a partial refresh of a rectangle; repeated requests for the same
+// screen merge into the union, which is what makes multi-press coalescing
+// work. Rows intersecting the band are fully redrawn from CURRENT state at
+// render time, so any number of merged moves stays consistent.
+void queueBand(Screen screen, int x0, int y0, int x1, int y1) {
+    if (band.valid && band.screen == screen) {
+        band.x0 = min(band.x0, x0);
+        band.y0 = min(band.y0, y0);
+        band.x1 = max(band.x1, x1);
+        band.y1 = max(band.y1, y1);
+    } else {
+        band.valid = true;
+        band.screen = screen;
+        band.x0 = x0;
+        band.y0 = y0;
+        band.x1 = x1;
+        band.y1 = y1;
+    }
+}
+
 struct ListState {
     int selected = 0;
     int scrollTop = 0;
@@ -105,6 +152,9 @@ const int kRowH = 34;      // standard list row (Font16 + padding)
 const int kListTop = kHeaderH + 12;
 const int kEdge = 14;      // horizontal margin used by headers/footers/rows
 const int kAccentW = 8;    // width of the left accent bar on the selected row
+const int kHomeRowH = 74;  // home menu row pitch
+const int kHomeTop = 86;   // y of the first home menu row
+const int kSettingsActionsTop = 56 + 4 * 30 + 14; // settings action rows sit below the info block
 
 int textWidth(const char *s, const sFONT &font) {
     return strlen(s) * font.Width;
@@ -277,30 +327,28 @@ void drawHomeScreen() {
 
     // Menu rows: icon + label + caption + chevron; the selected row gets a
     // left accent bar (text stays black on white for crisp e-ink rendering).
-    const int rowH = 74;
-    const int y0 = 86;
     for (int i = 0; i < kHomeMenuCount; i++) {
-        const int y = y0 + i * rowH;
+        const int y = kHomeTop + i * kHomeRowH;
         const bool sel = (i == homeState.selected);
 
         if (sel) {
-            Paint_DrawRectangle(8, y + 8, 8 + kAccentW + 4, y + rowH - 8, BLACK, DOT_PIXEL_1X1,
-                                DRAW_FILL_FULL);
+            Paint_DrawRectangle(8, y + 8, 8 + kAccentW + 4, y + kHomeRowH - 8, BLACK,
+                                DOT_PIXEL_1X1, DRAW_FILL_FULL);
         }
 
-        drawIcon(kHomeMenu[i].icon, 18, y + (rowH - 8 - 32) / 2, BLACK);
+        drawIcon(kHomeMenu[i].icon, 18, y + (kHomeRowH - 8 - 32) / 2, BLACK);
         Paint_DrawString_EN(64, y + 12, kHomeMenu[i].label, &Font20, BLACK, WHITE);
         Paint_DrawString_EN(64, y + 12 + Font20.Height + 5, kHomeMenu[i].caption, &Font12, BLACK,
                             WHITE);
 
         // Chevron
-        const int cy = y + (rowH - 8) / 2;
+        const int cy = y + (kHomeRowH - 8) / 2;
         Paint_DrawLine(W - 34, cy - 6, W - 26, cy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
         Paint_DrawLine(W - 34, cy + 6, W - 26, cy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
         // Row separator
         if (i < kHomeMenuCount - 1) {
-            Paint_DrawLine(8, y + rowH - 4, W - 8, y + rowH - 4, BLACK, DOT_PIXEL_1X1,
+            Paint_DrawLine(8, y + kHomeRowH - 4, W - 8, y + kHomeRowH - 4, BLACK, DOT_PIXEL_1X1,
                            LINE_STYLE_SOLID);
         }
     }
@@ -451,6 +499,30 @@ void drawDuitNowScreen() {
 // To-do list
 // ---------------------------------------------------------------------------
 
+// One to-do row (accent bar, checkbox, text, separator). Used by both the
+// full-screen draw and the partial band redraw - the row must not clear its
+// own background; the caller does that when redrawing a band.
+void drawTodoRow(int idx, int y) {
+    const bool sel = (idx == todoState.selected);
+    const int cx = sel ? kEdge + kAccentW + 6 : kEdge;
+
+    if (sel) {
+        Paint_DrawRectangle(8, y + 5, 8 + kAccentW, y + kRowH - 9, BLACK, DOT_PIXEL_1X1,
+                            DRAW_FILL_FULL);
+    }
+
+    // Checkbox glyph: outlined box, ticked when done
+    Paint_DrawRectangle(cx, y + 10, cx + 11, y + 21, BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+    if (todoItems[idx].done) {
+        Paint_DrawLine(cx + 2, y + 15, cx + 5, y + 18, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(cx + 5, y + 18, cx + 9, y + 12, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    }
+
+    Paint_DrawString_EN(cx + 18, y + 8, todoItems[idx].text.c_str(), &Font16, BLACK, WHITE);
+    Paint_DrawLine(kEdge, y + kRowH - 2, Display::width() - kEdge, y + kRowH - 2, BLACK,
+                   DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+}
+
 void drawTodoScreen() {
     Display::beginFrame();
     drawHeader("To-Do List");
@@ -463,29 +535,7 @@ void drawTodoScreen() {
         for (int i = 0; i < rows; i++) {
             int idx = todoState.scrollTop + i;
             if (idx >= (int)todoItems.size()) break;
-            const int y = kListTop + i * kRowH;
-            const bool sel = (idx == todoState.selected);
-            const int cx = sel ? kEdge + kAccentW + 6 : kEdge;
-
-            if (sel) {
-                Paint_DrawRectangle(8, y + 5, 8 + kAccentW, y + kRowH - 9, BLACK, DOT_PIXEL_1X1,
-                                    DRAW_FILL_FULL);
-            }
-
-            // Checkbox glyph: outlined box, ticked when done
-            Paint_DrawRectangle(cx, y + 10, cx + 11, y + 21, BLACK, DOT_PIXEL_1X1,
-                                DRAW_FILL_EMPTY);
-            if (todoItems[idx].done) {
-                Paint_DrawLine(cx + 2, y + 15, cx + 5, y + 18, BLACK, DOT_PIXEL_1X1,
-                               LINE_STYLE_SOLID);
-                Paint_DrawLine(cx + 5, y + 18, cx + 9, y + 12, BLACK, DOT_PIXEL_1X1,
-                               LINE_STYLE_SOLID);
-            }
-
-            Paint_DrawString_EN(cx + 18, y + 8, todoItems[idx].text.c_str(), &Font16, BLACK,
-                                WHITE);
-            Paint_DrawLine(kEdge, y + kRowH - 2, Display::width() - kEdge, y + kRowH - 2, BLACK,
-                           DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            drawTodoRow(idx, kListTop + i * kRowH);
         }
     }
 
@@ -644,13 +694,105 @@ void drawSettingsScreen() {
     Paint_DrawLine(kEdge, 56 + 4 * 30 + 4, Display::width() - kEdge, 56 + 4 * 30 + 4, BLACK,
                    DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
-    const int y0 = 56 + 4 * 30 + 14;
+    const int y0 = kSettingsActionsTop;
     for (int i = 0; i < kSettingsActionCount; i++) {
         drawListRow(i == settingsState.selected, kSettingsActions[i], y0 + i * kRowH);
     }
 
     drawFooter("UP/DOWN move   SELECT choose   BOOT back");
     Display::endFrame(true);
+}
+
+// ---------------------------------------------------------------------------
+// Partial band redraws. Each function redraws the rows intersecting `band`
+// from CURRENT state (never from remembered old/new indices), so any number
+// of coalesced input events renders correctly in one partial refresh.
+// ---------------------------------------------------------------------------
+
+// Home: only the selection accent strip changes on navigation; text, icons,
+// chevrons and separators are static, so the band stays a narrow strip.
+void redrawHomeAccentsInBand() {
+    Display::beginPartialDraw();
+    for (int i = 0; i < kHomeMenuCount; i++) {
+        const int y = kHomeTop + i * kHomeRowH;
+        const int ay0 = y + 8, ay1 = y + kHomeRowH - 8;
+        if (ay1 < band.y0 || ay0 > band.y1) continue;
+        const bool sel = (i == homeState.selected);
+        Paint_DrawRectangle(8, ay0, 8 + kAccentW + 4, ay1, sel ? BLACK : WHITE, DOT_PIXEL_1X1,
+                            DRAW_FILL_FULL);
+    }
+    Display::partialUpdate(band.x0, band.y0, band.x1, band.y1);
+}
+
+// Generic list rows (cards, tickets, books, settings actions). Full row
+// content is redrawn: selection changes the text indent, not just the bar.
+void redrawListRowsInBand(const std::vector<String> &items, const ListState &st) {
+    Display::beginPartialDraw();
+    const int W = Display::width();
+    const int rows = visibleRows();
+    for (int i = 0; i < rows; i++) {
+        const int idx = st.scrollTop + i;
+        if (idx >= (int)items.size()) break;
+        const int y = kListTop + i * kRowH;
+        if (y + kRowH - 2 < band.y0 || y > band.y1) continue;
+        Paint_DrawRectangle(8, y, W - 8, y + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        drawListRow(idx == st.selected, items[idx], y);
+    }
+    Display::partialUpdate(band.x0, band.y0, band.x1, band.y1);
+}
+
+void redrawTodoRowsInBand() {
+    Display::beginPartialDraw();
+    const int W = Display::width();
+    const int rows = visibleRows();
+    for (int i = 0; i < rows; i++) {
+        const int idx = todoState.scrollTop + i;
+        if (idx >= (int)todoItems.size()) break;
+        const int y = kListTop + i * kRowH;
+        if (y + kRowH - 2 < band.y0 || y > band.y1) continue;
+        Paint_DrawRectangle(8, y, W - 8, y + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        drawTodoRow(idx, y);
+    }
+    Display::partialUpdate(band.x0, band.y0, band.x1, band.y1);
+}
+
+// Settings action rows sit below the info block; only they are band-updated.
+void redrawSettingsRowsInBand() {
+    Display::beginPartialDraw();
+    const int W = Display::width();
+    for (int i = 0; i < kSettingsActionCount; i++) {
+        const int y = kSettingsActionsTop + i * kRowH;
+        if (y + kRowH - 2 < band.y0 || y > band.y1) continue;
+        Paint_DrawRectangle(8, y, W - 8, y + kRowH - 2, WHITE, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        drawListRow(i == settingsState.selected, kSettingsActions[i], y);
+    }
+    Display::partialUpdate(band.x0, band.y0, band.x1, band.y1);
+}
+
+void renderBand() {
+    switch (band.screen) {
+        case SCREEN_HOME:
+            redrawHomeAccentsInBand();
+            break;
+        case SCREEN_CARDS:
+            redrawListRowsInBand(namesOf(Storage::cards()), cardsState);
+            break;
+        case SCREEN_TICKETS:
+            redrawListRowsInBand(namesOf(Storage::tickets()), ticketsState);
+            break;
+        case SCREEN_BOOKS:
+            redrawListRowsInBand(namesOf(Storage::books()), booksState);
+            break;
+        case SCREEN_TODO:
+            redrawTodoRowsInBand();
+            break;
+        case SCREEN_SETTINGS:
+            redrawSettingsRowsInBand();
+            break;
+        default:
+            queueFullRefresh(); // no band path for this screen; do a full redraw
+            break;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -704,53 +846,85 @@ void render() {
 
 void goHome() {
     currentScreen = SCREEN_HOME;
-    dirty = true;
+    queueFullRefresh();
 }
 
 // ---------------------------------------------------------------------------
 // Input handling
 // ---------------------------------------------------------------------------
 
+// Selection move on a list screen: request a band update of just the
+// affected rows; fall back to a full redraw when the list scrolls.
+void moveListSelection(Screen screen, ListState &st, int delta, int count) {
+    const int oldSel = st.selected, oldST = st.scrollTop;
+    moveSelection(st, delta, count);
+    if (st.selected == oldSel) return; // hit the top/bottom edge: no visual change
+    if (st.scrollTop != oldST) {
+        queueFullRefresh(); // list scrolled: every row moves
+        return;
+    }
+    const int y0 = kListTop + (min(oldSel, st.selected) - st.scrollTop) * kRowH;
+    const int y1 = kListTop + (max(oldSel, st.selected) - st.scrollTop) * kRowH + kRowH - 2;
+    // The band starts at x=8, not kEdge: the selection accent bar lives at
+    // x=8..8+kAccentW (left of the text margin), so a kEdge-aligned window
+    // would clip it.
+    queueBand(screen, 8, y0, Display::width() - 8, y1);
+}
+
+void moveHomeSelection(int delta) {
+    const int oldSel = homeState.selected;
+    moveSelection(homeState, delta, kHomeMenuCount);
+    if (homeState.selected == oldSel) return;
+    const int y0 = kHomeTop + min(oldSel, homeState.selected) * kHomeRowH + 8;
+    const int y1 = kHomeTop + max(oldSel, homeState.selected) * kHomeRowH + kHomeRowH - 8;
+    queueBand(SCREEN_HOME, 8, y0, 8 + kAccentW + 4, y1);
+}
+
+void moveSettingsSelection(int delta) {
+    const int oldSel = settingsState.selected;
+    moveSelection(settingsState, delta, kSettingsActionCount);
+    if (settingsState.selected == oldSel) return;
+    const int y0 = kSettingsActionsTop + min(oldSel, settingsState.selected) * kRowH;
+    const int y1 = kSettingsActionsTop + max(oldSel, settingsState.selected) * kRowH + kRowH - 2;
+    queueBand(SCREEN_SETTINGS, 8, y0, Display::width() - 8, y1);
+}
+
 void handleUp() {
     switch (currentScreen) {
         case SCREEN_HOME:
-            moveSelection(homeState, -1, kHomeMenuCount);
-            dirty = true;
+            moveHomeSelection(-1);
             break;
         case SCREEN_CARDS:
-            moveSelection(cardsState, -1, Storage::cards().size());
-            dirty = true;
+            moveListSelection(SCREEN_CARDS, cardsState, -1, Storage::cards().size());
             break;
         case SCREEN_TICKETS:
-            moveSelection(ticketsState, -1, Storage::tickets().size());
-            dirty = true;
+            moveListSelection(SCREEN_TICKETS, ticketsState, -1, Storage::tickets().size());
             break;
         case SCREEN_BOOKS:
-            moveSelection(booksState, -1, Storage::books().size());
-            dirty = true;
+            moveListSelection(SCREEN_BOOKS, booksState, -1, Storage::books().size());
             break;
         case SCREEN_TODO:
-            moveSelection(todoState, -1, todoItems.size());
-            dirty = true;
+            moveListSelection(SCREEN_TODO, todoState, -1, todoItems.size());
             break;
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
                 moveSelection(cardsState, -1, Storage::cards().size());
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_TICKET_VIEW:
             if (!Storage::tickets().empty()) {
                 moveSelection(ticketsState, -1, Storage::tickets().size());
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_BOOK_READ:
-            if (readerFile) showReaderPage(readerPageIndex - 1);
+            // Page turns accumulate while a refresh runs; the loop renders
+            // the final target page once, skipping intermediate pages.
+            if (readerFile) readerPendingSteps--;
             break;
         case SCREEN_SETTINGS:
-            moveSelection(settingsState, -1, kSettingsActionCount);
-            dirty = true;
+            moveSettingsSelection(-1);
             break;
         default:
             break;
@@ -760,43 +934,37 @@ void handleUp() {
 void handleDown() {
     switch (currentScreen) {
         case SCREEN_HOME:
-            moveSelection(homeState, 1, kHomeMenuCount);
-            dirty = true;
+            moveHomeSelection(1);
             break;
         case SCREEN_CARDS:
-            moveSelection(cardsState, 1, Storage::cards().size());
-            dirty = true;
+            moveListSelection(SCREEN_CARDS, cardsState, 1, Storage::cards().size());
             break;
         case SCREEN_TICKETS:
-            moveSelection(ticketsState, 1, Storage::tickets().size());
-            dirty = true;
+            moveListSelection(SCREEN_TICKETS, ticketsState, 1, Storage::tickets().size());
             break;
         case SCREEN_BOOKS:
-            moveSelection(booksState, 1, Storage::books().size());
-            dirty = true;
+            moveListSelection(SCREEN_BOOKS, booksState, 1, Storage::books().size());
             break;
         case SCREEN_TODO:
-            moveSelection(todoState, 1, todoItems.size());
-            dirty = true;
+            moveListSelection(SCREEN_TODO, todoState, 1, todoItems.size());
             break;
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
                 moveSelection(cardsState, 1, Storage::cards().size());
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_TICKET_VIEW:
             if (!Storage::tickets().empty()) {
                 moveSelection(ticketsState, 1, Storage::tickets().size());
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_BOOK_READ:
-            if (readerFile) showReaderPage(readerPageIndex + 1);
+            if (readerFile) readerPendingSteps++;
             break;
         case SCREEN_SETTINGS:
-            moveSelection(settingsState, 1, kSettingsActionCount);
-            dirty = true;
+            moveSettingsSelection(1);
             break;
         default:
             break;
@@ -807,32 +975,36 @@ void handleSelect() {
     switch (currentScreen) {
         case SCREEN_HOME:
             currentScreen = kHomeMenu[homeState.selected].target;
-            dirty = true;
+            queueFullRefresh();
             break;
         case SCREEN_CARDS:
             if (!Storage::cards().empty()) {
                 currentScreen = SCREEN_CARD_VIEW;
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_TICKETS:
             if (!Storage::tickets().empty()) {
                 currentScreen = SCREEN_TICKET_VIEW;
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         case SCREEN_BOOKS:
             if (!Storage::books().empty()) {
-                openBook(Storage::books()[booksState.selected]);
+                // Defer the actual open+render to the loop: it draws and
+                // kicks a refresh, which is only legal when the panel is idle.
+                band.valid = false;
+                pendingBookIndex = booksState.selected;
                 currentScreen = SCREEN_BOOK_READ;
-                dirty = false; // openBook() already drew the first page
             }
             break;
         case SCREEN_TODO:
             if (!todoItems.empty()) {
                 todoItems[todoState.selected].done = !todoItems[todoState.selected].done;
                 Storage::saveTodo(todoItems);
-                dirty = true;
+                // Only the checkbox in this row changed: band update.
+                const int y = kListTop + (todoState.selected - todoState.scrollTop) * kRowH;
+                queueBand(SCREEN_TODO, 8, y, Display::width() - 8, y + kRowH - 2);
             }
             break;
         case SCREEN_SETTINGS:
@@ -846,17 +1018,15 @@ void handleSelect() {
                     Storage::loadManifest();
                     todoItems = Storage::loadTodo();
                 }
-                if (!wasMounted) dirty = true; // settings info shows the new SD state
+                if (!wasMounted) queueFullRefresh(); // settings info shows the new SD state
             } else if (settingsState.selected == 1) {
-                OTA::checkAndApplyNow(); // reboots on success; falls through to redraw on failure
-                // Partial update just the OTA row instead of a full screen flash
-                const int rowY = 56 + 3 * 30;
-                Display::beginPartialDraw();
-                drawSettingsInfo(56, OTA::lastCheckStatus().c_str());
-                Display::partialUpdate(kEdge, rowY - 4, Display::width() - kEdge, rowY + 28);
+                Display::waitIdle();   // don't start a flash/network op mid-refresh
+                OTA::checkAndApplyNow(); // reboots on success; falls through on failure
+                queueFullRefresh();      // settings screen shows the new OTA status
             } else {
+                Display::waitIdle(); // the portal takes over the device for minutes
                 WifiProvision::runSetupPortal();
-                dirty = true;
+                queueFullRefresh();
             }
             break;
         default:
@@ -870,17 +1040,19 @@ void handleBack() {
             break; // already at the top
         case SCREEN_CARD_VIEW:
             currentScreen = SCREEN_CARDS;
-            dirty = true;
+            queueFullRefresh();
             break;
         case SCREEN_TICKET_VIEW:
             currentScreen = SCREEN_TICKETS;
-            dirty = true;
+            queueFullRefresh();
             break;
         case SCREEN_BOOK_READ:
+            pendingBookIndex = -1; // cancel an open that never ran
+            readerPendingSteps = 0;
             if (readerFile) fclose(readerFile);
             readerFile = nullptr;
             currentScreen = SCREEN_BOOKS;
-            dirty = true;
+            queueFullRefresh();
             break;
         default:
             goHome();
@@ -913,12 +1085,15 @@ void retryMount() {
     if (Storage::begin()) {
         Storage::loadManifest();
         todoItems = Storage::loadTodo();
-        dirty = true;
+        queueFullRefresh();
         Serial.println("UI: SD card mounted (hot-plug)");
     }
 }
 
 void checkIdleSleep() {
+    // Never sleep with work queued or a refresh in flight.
+    if (Display::busy() || dirty || band.valid || readerPendingSteps != 0 || pendingBookIndex >= 0)
+        return;
     if (!asleep && IDLE_SLEEP_MS > 0 && millis() - lastActivityMs >= IDLE_SLEEP_MS) {
         asleep = true;
         Serial.println("UI: idle timeout - panel sleeping (press any button to wake)");
@@ -945,12 +1120,14 @@ void begin() {
 }
 
 void loop() {
+    Display::service(); // finish the in-flight refresh's bookkeeping, if any
+
     if (asleep) {
         // Wake on any button; the press that woke the device is consumed so
         // it doesn't also navigate somewhere.
         if (btnUp.pressed() || btnDown.pressed() || btnSelect.pressed() || btnBack.pressed()) {
             markActivity();
-            dirty = true; // re-init + redraw the current screen
+            queueFullRefresh(); // re-init + redraw the current screen
             Serial.println("UI: woke from panel sleep");
         }
         return;
@@ -973,9 +1150,27 @@ void loop() {
         handleBack();
     }
 
-    if (dirty) {
-        render();
-        dirty = false;
+    // Start the next refresh only when the panel is idle. Requests made
+    // while the panel is busy stay queued and coalesce into one update of
+    // the final state.
+    if (!Display::busy()) {
+        if (dirty) {
+            render();
+            dirty = false;
+        } else if (band.valid) {
+            renderBand();
+            band.valid = false;
+        } else if (currentScreen == SCREEN_BOOK_READ && pendingBookIndex >= 0) {
+            const int idx = min(pendingBookIndex, (int)Storage::books().size() - 1);
+            pendingBookIndex = -1;
+            if (idx >= 0) {
+                openBook(Storage::books()[idx]); // draws + kicks the refresh itself
+            }
+        } else if (currentScreen == SCREEN_BOOK_READ && readerPendingSteps != 0 && readerFile) {
+            const int steps = readerPendingSteps;
+            readerPendingSteps = 0;
+            showReaderPage(readerPageIndex + steps); // clamps; skips intermediate pages
+        }
     }
 
     retryMount();

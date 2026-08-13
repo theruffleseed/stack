@@ -29,7 +29,8 @@
 ******************************************************************************/
 #include "EPD_3in97.h"
 #include "Debug.h"
-#include <time.h> 
+#include <time.h>
+#include <string.h> // memset (FillRamWindow)
 
 /******************************************************************************
 function :	Software reset
@@ -78,7 +79,10 @@ parameter:
 static void EPD_3IN97_ReadBusy(void)
 {
     Debug("e-Paper busy\r\n");
-    DEV_Delay_ms(100);
+    // BUSY asserts within microseconds of the triggering command on this
+    // controller; a short settle is plenty. (The Waveshare stock code waited
+    // a fixed 100ms first, which added ~300ms of dead time to every init.)
+    DEV_Delay_ms(10);
     // Bounded wait: the panel is expected to release BUSY (GPIO3) within a
     // couple of seconds. Without this cap, a wiring/power issue or a stuck
     // strapping pin turns into a silent infinite hang with no diagnostic -
@@ -94,6 +98,95 @@ static void EPD_3IN97_ReadBusy(void)
         }
     }
     Debug("e-Paper busy release\r\n");
+}
+
+UBYTE EPD_3IN97_IsBusy(void)
+{
+    return DEV_Digital_Read(EPD_BUSY_PIN); // LOW: idle, HIGH: busy
+}
+
+/******************************************************************************
+function :  Block-write `len` bytes of image data (DC high, CS held for the
+            whole run). Used for frame/window payloads instead of the stock
+            per-byte loop, which bit-banged GPIO at ~4us/byte.
+******************************************************************************/
+static void EPD_3IN97_SendDataBlock(const UBYTE *data, UDOUBLE len)
+{
+    DEV_Digital_Write(EPD_DC_PIN, 1);
+    DEV_Digital_Write(EPD_CS_PIN, 0);
+    DEV_SPI_WriteBlock(data, len);
+    DEV_Digital_Write(EPD_CS_PIN, 1);
+}
+
+/******************************************************************************
+function :  Set the RAM address window + write counters. Pixel coordinates;
+            X must be 8-aligned; window is half-open [start,end). Display_*
+            call this themselves so they never depend on whatever window a
+            previous partial update left behind.
+******************************************************************************/
+static void EPD_3IN97_SetRamWindow(UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
+{
+    EPD_3IN97_SendCommand(0x44); //set Ram-X address start/end position
+    EPD_3IN97_SendData(Xstart & 0xFF);
+    EPD_3IN97_SendData((Xstart >> 8) & 0xFF);
+    EPD_3IN97_SendData((Xend - 1) & 0xFF);
+    EPD_3IN97_SendData(((Xend - 1) >> 8) & 0xFF);
+
+    EPD_3IN97_SendCommand(0x45); //set Ram-Y address start/end position
+    EPD_3IN97_SendData(Ystart & 0xFF);
+    EPD_3IN97_SendData((Ystart >> 8) & 0xFF);
+    EPD_3IN97_SendData((Yend - 1) & 0xFF);
+    EPD_3IN97_SendData(((Yend - 1) >> 8) & 0xFF);
+
+    EPD_3IN97_SendCommand(0x4E); // set RAM x address counter
+    EPD_3IN97_SendData(Xstart & 0xFF);
+    EPD_3IN97_SendData((Xstart >> 8) & 0xFF);
+    EPD_3IN97_SendCommand(0x4F); // set RAM y address counter
+    EPD_3IN97_SendData(Ystart & 0xFF);
+    EPD_3IN97_SendData((Ystart >> 8) & 0xFF);
+}
+
+// Writes a packed window of image data to `ramCmd` (0x24 new / 0x26 old).
+static void EPD_3IN97_WriteRamWindow(UBYTE ramCmd, const UBYTE *Image,
+                                     UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
+{
+    EPD_3IN97_SetRamWindow(Xstart, Ystart, Xend, Yend);
+    EPD_3IN97_SendCommand(ramCmd);
+    EPD_3IN97_SendDataBlock(Image, (UDOUBLE)((Xend - Xstart) / 8) * (Yend - Ystart));
+}
+
+// Fills a RAM window with a constant byte (for Clear/Clear_Black).
+static void EPD_3IN97_FillRamWindow(UBYTE ramCmd, UBYTE fill,
+                                    UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
+{
+    EPD_3IN97_SetRamWindow(Xstart, Ystart, Xend, Yend);
+    EPD_3IN97_SendCommand(ramCmd);
+    UBYTE chunk[128];
+    memset(chunk, fill, sizeof(chunk));
+    UDOUBLE remaining = (UDOUBLE)((Xend - Xstart) / 8) * (Yend - Ystart);
+    while (remaining > 0) {
+        UWORD n = remaining > sizeof(chunk) ? sizeof(chunk) : (UWORD)remaining;
+        EPD_3IN97_SendDataBlock(chunk, n);
+        remaining -= n;
+    }
+}
+
+/******************************************************************************
+function :  Kick a display update (0x22 mode + 0x20 master activation) and
+            wait ONLY until the panel asserts BUSY, then return - the caller
+            polls EPD_3IN97_IsBusy() for completion instead of blocking.
+            Returns 1 if BUSY asserted, 0 on timeout (no refresh running).
+******************************************************************************/
+static UBYTE EPD_3IN97_TriggerRefresh(UBYTE mode)
+{
+    EPD_3IN97_SendCommand(0x22);
+    EPD_3IN97_SendData(mode);
+    EPD_3IN97_SendCommand(0x20);
+    for (int i = 0; i < 100; i++) {
+        if (EPD_3IN97_IsBusy()) return 1;
+        DEV_Delay_ms(1);
+    }
+    return 0;
 }
 
 /******************************************************************************
@@ -121,14 +214,6 @@ static void EPD_3IN97_TurnOnDisplay_4GRAY(void)
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xD7);
 	EPD_3IN97_SendCommand(0x20);
-    EPD_3IN97_ReadBusy();
-}
-
-static void EPD_3IN97_TurnOnDisplay_Part(void)
-{
-    EPD_3IN97_SendCommand(0x22);
-    EPD_3IN97_SendData(0xFF);
-    EPD_3IN97_SendCommand(0x20);
     EPD_3IN97_ReadBusy();
 }
 
@@ -302,48 +387,16 @@ parameter:
 ******************************************************************************/
 void EPD_3IN97_Clear(void)
 {
-    UWORD Width, Height;
-    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
-    Height = EPD_3IN97_HEIGHT;
-
-    EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0XFF);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_TurnOnDisplay();
+    EPD_3IN97_FillRamWindow(0x24, 0xFF, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    EPD_3IN97_FillRamWindow(0x26, 0xFF, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    EPD_3IN97_TurnOnDisplay(); // blocking: boot/shutdown path only
 }
 
 void EPD_3IN97_Clear_Black(void)
 {
-    UWORD Width, Height;
-    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
-    Height = EPD_3IN97_HEIGHT;
-
-    EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(0X00);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_TurnOnDisplay();
+    EPD_3IN97_FillRamWindow(0x24, 0x00, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    EPD_3IN97_FillRamWindow(0x26, 0x00, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    EPD_3IN97_TurnOnDisplay(); // blocking: boot/shutdown path only
 }
 
 
@@ -351,60 +404,31 @@ void EPD_3IN97_Clear_Black(void)
 function :	Sends the image buffer in RAM to e-Paper and displays
 parameter:
 ******************************************************************************/
-void EPD_3IN97_Display(const UBYTE *Image)
+// All Display_* variants set their own RAM window/counters (never rely on a
+// previous init), push the frame with hardware-SPI block writes, and only
+// KICK the refresh - they return as soon as BUSY asserts. Poll
+// EPD_3IN97_IsBusy() for completion. Return value: 1 = refresh running.
+UBYTE EPD_3IN97_Display(const UBYTE *Image)
 {
-    UWORD Width, Height;
-    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
-    Height = EPD_3IN97_HEIGHT;
-
-    EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_TurnOnDisplay();
+    EPD_3IN97_WriteRamWindow(0x24, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    return EPD_3IN97_TriggerRefresh(0xF7);
 }
 
-void EPD_3IN97_Display_Base(const UBYTE *Image)
+UBYTE EPD_3IN97_Display_Base(const UBYTE *Image)
 {
-    UWORD Width, Height;
-    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
-    Height = EPD_3IN97_HEIGHT;
-
-    EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
-
-    EPD_3IN97_SendCommand(0x26);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_TurnOnDisplay();
+    // Both RAMs get the same frame: after the refresh, "old" (0x26) matches
+    // the screen exactly, so later differential partial updates are correct.
+    EPD_3IN97_WriteRamWindow(0x24, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    EPD_3IN97_WriteRamWindow(0x26, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    return EPD_3IN97_TriggerRefresh(0xF7);
 }
 
-void EPD_3IN97_Display_Fast(const UBYTE *Image)
+UBYTE EPD_3IN97_Display_Fast(const UBYTE *Image)
 {
-    UWORD Width, Height;
-    Width = (EPD_3IN97_WIDTH % 8 == 0)? (EPD_3IN97_WIDTH / 8 ): (EPD_3IN97_WIDTH / 8 + 1);
-    Height = EPD_3IN97_HEIGHT;
-
-    EPD_3IN97_SendCommand(0x24);
-    for (UWORD j = 0; j < Height; j++) {
-        for (UWORD i = 0; i < Width; i++) {
-            EPD_3IN97_SendData(Image[i + j * Width]);
-        }
-        DEV_Delay_ms(1);
-    }
-    EPD_3IN97_TurnOnDisplay_Fast();
+    // Writes only 0x24 - the caller must run EPD_3IN97_SyncOldRam() once the
+    // refresh completes, or partial updates will ghost against a stale base.
+    EPD_3IN97_WriteRamWindow(0x24, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+    return EPD_3IN97_TriggerRefresh(0xD7);
 }
 
 void EPD_3IN97_Display_Fast_Base(const UBYTE *Image)
@@ -489,64 +513,42 @@ void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ys
 }
 
 /******************************************************************************
-function :	Sends the image buffer in RAM to e-Paper and displays
-parameter:
+function :	Partial (windowed, differential-waveform) update.
+parameter :
+    Image   : PACKED window pixels, ((Xend-Xstart)/8)*(Yend-Ystart) bytes.
+              The Waveshare original took a full-frame pointer and read it
+              sequentially, which scrambles any window narrower than the
+              frame - that bug made the first partial-update attempt draw
+              garbage and get reverted. Packing is the caller's job now.
+    Xstart/Xend : pixel columns, MUST be 8-aligned; window is half-open.
+    Returns 1 when the refresh triggered (BUSY asserted), else 0.
+
+    The differential partial waveform compares new RAM (0x24) against old
+    RAM (0x26). Call EPD_3IN97_SyncOldRamWindow() after the refresh
+    completes to keep 0x26 in step with what's actually on screen.
 ******************************************************************************/
-void EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
+UBYTE EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
 {
-	if((Xstart % 8 + Xend % 8 == 8 && Xstart % 8 > Xend % 8) || Xstart % 8 + Xend % 8 == 0 || (Xend - Xstart)%8 == 0)
-    {
-        Xstart = Xstart / 8 ;
-        Xend = Xend / 8;
-    }
-    else
-    {
-        Xstart = Xstart / 8 ;
-        Xend = Xend % 8 == 0 ? Xend / 8 : Xend / 8 + 1;
-    }
-    
-
-    UWORD i, Width;
-	Width = Xend -  Xstart;
-	UDOUBLE IMAGE_COUNTER = Width * (Yend-Ystart);
-
-    Xend -= 1;
-	Yend -= 1;	
-
     EPD_3IN97_Reset();
 
     EPD_3IN97_SendCommand(0x18);
     EPD_3IN97_SendData(0x80);
 
-    EPD_3IN97_SendCommand(0x3C);
+    EPD_3IN97_SendCommand(0x3C); // BorderWaveform: HiZ, required for partial
     EPD_3IN97_SendData(0x80);
 
-	EPD_3IN97_SendCommand(0x44);
-    EPD_3IN97_SendData((Xstart*8) & 0xFF);
-    EPD_3IN97_SendData(((Xstart*8) >> 8) & 0xFF);
-    EPD_3IN97_SendData((Xend*8) & 0xFF);
-    EPD_3IN97_SendData(((Xend*8) >> 8) & 0xFF);
-	
-    EPD_3IN97_SendCommand(0x45);
-    EPD_3IN97_SendData(Ystart & 0xFF);
-    EPD_3IN97_SendData((Ystart >> 8) & 0xFF);
-    EPD_3IN97_SendData(Yend & 0xFF);
-    EPD_3IN97_SendData((Yend >> 8) & 0xFF);
-    
-    EPD_3IN97_SendCommand(0x4E); 
-    EPD_3IN97_SendData((Xstart*8) & 0xFF);
-    EPD_3IN97_SendData(((Xstart*8) >> 8) & 0xFF);
-	
-    EPD_3IN97_SendCommand(0x4F);
-    EPD_3IN97_SendData(Ystart & 0xFF);
-    EPD_3IN97_SendData((Ystart >> 8) & 0xFF);
+    EPD_3IN97_WriteRamWindow(0x24, Image, Xstart, Ystart, Xend, Yend);
+    return EPD_3IN97_TriggerRefresh(0xFF);
+}
 
-	EPD_3IN97_SendCommand(0x24);   //Write Black and White image to RAM
-    for (i = 0; i < IMAGE_COUNTER; i++) {
-	    EPD_3IN97_SendData(Image[i]);
-	}
+void EPD_3IN97_SyncOldRam(const UBYTE *Image)
+{
+    EPD_3IN97_WriteRamWindow(0x26, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
+}
 
-	EPD_3IN97_TurnOnDisplay_Part();
+void EPD_3IN97_SyncOldRamWindow(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
+{
+    EPD_3IN97_WriteRamWindow(0x26, Image, Xstart, Ystart, Xend, Yend);
 }
 
 void EPD_3IN97_Display_4Gray(const UBYTE *Image)
