@@ -46,12 +46,12 @@ UBYTE EPD_3IN97_Display_Fast(const UBYTE *Image);
 void EPD_3IN97_Display_Fast_Base(const UBYTE *Image);
 void EPD_3IN97_V2_Display_Window(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
 void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
-// Partial (differential-waveform) update. Despite the window parameters this
-// is a FULL-FRAME refresh: the SSD1677 on this panel has reversed gate lines,
-// so a windowed partial only works when the RAM Y window is declared reversed
-// (Yend first, counter at the last gate row) and data streams top-row-first -
-// exactly what WaveShare's xiaozhi-esp32 driver does for this board. The
-// window args are ignored; Image must be the full frame buffer, and the
+// Partial (differential-waveform) update. Implemented as a FULL-FRAME
+// refresh: the frame is pushed through the same forward RAM window that
+// EPD_3IN97_SyncOldRam() uses for the 0x26 baseline, and no hardware reset
+// is done (a reset would clear the data entry mode 0x11 and desync the
+// 0x24/0x26 mappings - the differential LUT would compare mismatched rows).
+// The window args are ignored; Image must be the full frame buffer, and the
 // caller should sync the old-RAM baseline with EPD_3IN97_SyncOldRam() after
 // the refresh completes. Returns 1 when the refresh triggered and BUSY
 // asserted, 0 if BUSY never asserted (caller should skip the old-RAM sync:
