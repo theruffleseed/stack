@@ -2,7 +2,7 @@ name: Release Firmware
 
 # The OTA half of "push to GitHub, it lands on the device": every push to
 # main that touches firmware/ compiles the sketch and publishes a GitHub
-# Release tagged v0.1.<run number>, with firmware.bin attached. The device's
+# Release tagged v0.2.<run number>, with firmware.bin attached. The device's
 # OTA client (ota.cpp) polls the Releases API and flashes that asset when
 # its own compiled-in STACK_WALLET_VERSION differs from the latest tag.
 # See docs/OTA.md for the full loop and its security tradeoffs.
@@ -39,7 +39,7 @@ jobs:
       - name: Stamp the version this build will identify itself as
         id: version
         run: |
-          VERSION="v0.1.${GITHUB_RUN_NUMBER}"
+          VERSION="v0.2.${GITHUB_RUN_NUMBER}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           cat > firmware/StackWallet/version.h <<EOF
           #pragma once
