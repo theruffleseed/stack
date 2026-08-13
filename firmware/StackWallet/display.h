@@ -45,12 +45,13 @@ void beginPartialDraw();
 // refreshes cost no extra reset cycles.
 void endFrame(bool fast = true);
 
-// Partial (differential-waveform) refresh of a sub-rectangle of the current
-// frame buffer content, in logical (post-rotation/mirror) coordinates,
-// inclusive. ~0.6s and flash-free; used for selection moves, checkbox
-// toggles, etc. Implemented as a full-frame differential refresh sharing the
-// RAM convention of the 0x26 baseline sync (see EPD_3IN97_Display_Partial);
-// the rectangle is only validated, the whole frame is pushed.
+// Partial (fast) refresh of a sub-rectangle of the current frame buffer
+// content, in logical (post-rotation/mirror) coordinates, inclusive. Used
+// for selection moves, checkbox toggles, etc. Implemented as a fast FULL
+// refresh (~1.5s, minor ghosting): the SSD1677 differential partial
+// waveform (0xFF) proved unreliable on this panel (white screens / noise),
+// so band updates reuse the same proven path as normal navigation. The
+// rectangle is only validated; the whole frame is pushed.
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 
 // True while a kicked refresh is still physically running on the panel.

@@ -112,8 +112,6 @@ void endFrame(bool fast) {
 }
 
 void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    if (busy()) waitIdle(); // see endFrame()
-
     const int W = width();
     const int H = height();
     if (x0 >= W || y0 >= H) return;
@@ -121,17 +119,13 @@ void partialUpdate(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
     if (y1 >= H) y1 = H - 1;
     if (x1 <= x0 || y1 <= y0) return;
 
-    // Full-frame partial refresh. The SSD1677 on this panel has reversed
-    // gate lines, so the driver always pushes the whole frame with the RAM Y
-    // window declared gate-reversed (see EPD_3IN97_Display_Partial); the
-    // rectangle above is validated only to reject degenerate calls. The
-    // differential waveform needs 0x26 synced once the refresh completes.
-    if (EPD_3IN97_Display_Partial(frameBuffer, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT)) {
-        refreshInFlight = true;
-        refreshKickMs = millis();
-        syncOldPending = true;
-    }
-    panelState = PanelState::Unknown; // partial path resets the controller
+    // The SSD1677 differential partial path (kick 0xFF) produced white
+    // screens and black noise on this panel despite several attempts to
+    // match the reference drivers (GxEPD2/xiaozhi), so band updates reuse
+    // the proven fast full refresh (0xD7, ~1.5s, minor ghosting) that
+    // normal navigation already uses. endFrame() handles the busy guard,
+    // the clean-refresh cadence, and the 0x26 baseline sync.
+    endFrame(true);
 }
 
 bool busy() {

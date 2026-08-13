@@ -46,17 +46,6 @@ UBYTE EPD_3IN97_Display_Fast(const UBYTE *Image);
 void EPD_3IN97_Display_Fast_Base(const UBYTE *Image);
 void EPD_3IN97_V2_Display_Window(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
 void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
-// Partial (differential-waveform) update. Implemented as a FULL-FRAME
-// refresh: the frame is pushed through the same forward RAM window that
-// EPD_3IN97_SyncOldRam() uses for the 0x26 baseline, and no hardware reset
-// is done (a reset would clear the data entry mode 0x11 and desync the
-// 0x24/0x26 mappings - the differential LUT would compare mismatched rows).
-// The window args are ignored; Image must be the full frame buffer, and the
-// caller should sync the old-RAM baseline with EPD_3IN97_SyncOldRam() after
-// the refresh completes. Returns 1 when the refresh triggered and BUSY
-// asserted, 0 if BUSY never asserted (caller should skip the old-RAM sync:
-// nothing is actually refreshing).
-UBYTE EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend);
 void EPD_3IN97_Display_4Gray(const UBYTE *Image);
 void EPD_3IN97_WritePicture_4Gray(const UBYTE *Image);
 void EPD_3IN97_Sleep(void);

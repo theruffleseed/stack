@@ -513,40 +513,9 @@ void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ys
 }
 
 /******************************************************************************
-function :	Partial (differential-waveform) update. FULL-FRAME despite its
-            window parameters: the SSD1677 on this panel works reliably with
-            the full-frame convention, and a true windowed partial would need
-            the RAM Y window declared gate-reversed (see GxEPD2
-            _setPartialRamArea for the panel's quirk) plus matching packed
-            data. No hardware reset is done here - a reset clears the data
-            entry mode (0x11) back to its default and would desync this 0x24
-            write from the 0x26 sync that uses the forward window, so the
-            differential LUT would compare mismatched rows and spray noise.
-            Instead the same registers Init/Init_Fast leave set are re-asserted
-            and the frame is pushed through the same forward full-frame window
-            that EPD_3IN97_SyncOldRam() uses for the 0x26 baseline.
-parameter :
-    Image   : FULL frame buffer, (EPD_3IN97_WIDTH/8)*EPD_3IN97_HEIGHT bytes.
-    Window args : ignored (kept for the existing call signature).
-    Returns 1 when the refresh triggered (BUSY asserted), else 0. Call
-    EPD_3IN97_SyncOldRam() after the refresh completes to keep the
-    differential baseline (0x26) in step with what's actually on screen.
+function :	Sends the image buffer in RAM to e-Paper and displays
+parameter:
 ******************************************************************************/
-UBYTE EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
-{
-    EPD_3IN97_SendCommand(0x11); // data entry mode
-    EPD_3IN97_SendData(0x01);    // x increase, y decrease (same as Init)
-
-    EPD_3IN97_SendCommand(0x18);
-    EPD_3IN97_SendData(0x80);
-
-    EPD_3IN97_SendCommand(0x3C); // BorderWaveform: HiZ, required for partial
-    EPD_3IN97_SendData(0x80);
-
-    EPD_3IN97_WriteRamWindow(0x24, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
-    return EPD_3IN97_TriggerRefresh(0xFF);
-}
-
 void EPD_3IN97_SyncOldRam(const UBYTE *Image)
 {
     EPD_3IN97_WriteRamWindow(0x26, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
