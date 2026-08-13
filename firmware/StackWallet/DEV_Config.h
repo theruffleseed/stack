@@ -65,12 +65,6 @@
 #define GPIO_PIN_SET   1
 #define GPIO_PIN_RESET 0
 
-// Hardware SPI clock for the panel. The SSD16xx-family controller on this
-// board is rated for 20MHz; the Waveshare stock driver bit-banged GPIO
-// instead (~4us/byte, ~250ms per 48KB frame), which dominated the perceived
-// input lag. Drop this to 10000000 only if the FPC link ever proves flaky.
-#define EPD_SPI_CLOCK 20000000
-
 /**
  * GPIO read and write
 **/
@@ -88,9 +82,6 @@ void GPIO_Mode(UWORD GPIO_Pin, UWORD Mode);
 void DEV_SPI_WriteByte(UBYTE data);
 UBYTE DEV_SPI_ReadByte();
 void DEV_SPI_Write_nByte(UBYTE *pData, UDOUBLE len);
-// Block write: CS/DC are NOT touched here (the EPD layer owns them); one SPI
-// transaction for the whole run, chunked for the ESP32 DMA driver.
-void DEV_SPI_WriteBlock(const UBYTE *pData, UDOUBLE len);
 void DEV_Module_Exit(void);
 
 #endif

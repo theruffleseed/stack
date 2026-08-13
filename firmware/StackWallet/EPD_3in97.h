@@ -37,26 +37,19 @@
 
 void EPD_3IN97_Init(void);
 void EPD_3IN97_Init_Fast(void);
+void EPD_3IN97_Init_Partial(void);
 void EPD_3IN97_Init_4GRAY(void);
 void EPD_3IN97_Clear(void);
 void EPD_3IN97_Clear_Black(void);
-UBYTE EPD_3IN97_Display(const UBYTE *Image);
-UBYTE EPD_3IN97_Display_Base(const UBYTE *Image);
-UBYTE EPD_3IN97_Display_Fast(const UBYTE *Image);
+void EPD_3IN97_Display(const UBYTE *Image);
+void EPD_3IN97_Display_Base(const UBYTE *Image);
+void EPD_3IN97_Display_Fast(const UBYTE *Image);
 void EPD_3IN97_Display_Fast_Base(const UBYTE *Image);
 void EPD_3IN97_V2_Display_Window(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
 void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh);
+void EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend);
 void EPD_3IN97_Display_4Gray(const UBYTE *Image);
 void EPD_3IN97_WritePicture_4Gray(const UBYTE *Image);
 void EPD_3IN97_Sleep(void);
-
-// Stack Wallet async-refresh additions. The Display_* functions above only
-// KICK the refresh (they return once BUSY asserts); completion is polled via
-// EPD_3IN97_IsBusy(). After a fast/partial refresh completes, the "old image"
-// RAM (0x26) must be re-synced to match what's on screen, or the next
-// differential (partial) update computes its waveform against a stale frame
-// and ghosts. The sync writes are plain RAM writes - they trigger no refresh.
-UBYTE EPD_3IN97_IsBusy(void);
-void EPD_3IN97_SyncOldRam(const UBYTE *Image);
 
 #endif
