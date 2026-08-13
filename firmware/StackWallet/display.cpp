@@ -55,7 +55,9 @@ void fullClear() {
 }
 
 void beginFrame() {
-    EPD_3IN97_Init();
+    // No EPD_3IN97_Init() here: drawing is RAM-only and endFrame() runs the
+    // full/fast init right before pushing anyway, so a pre-draw init is a
+    // wasted ~400ms reset per screen change.
     Paint_SelectImage(frameBuffer);
     Paint_Clear(WHITE);
 }

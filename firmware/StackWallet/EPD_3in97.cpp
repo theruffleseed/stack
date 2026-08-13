@@ -141,6 +141,11 @@ parameter:
 ******************************************************************************/
 static void EPD_3IN97_TurnOnDisplay(void)
 {
+    // 0x1A=0x6A (fast temperature compensation, as in Init_Fast) is
+    // experimental: it shortens the full-refresh waveform's busy time at the
+    // cost of potentially more ghosting on overall image refreshes.
+    EPD_3IN97_SendCommand(0x1A);
+    EPD_3IN97_SendData(0x6A);
     EPD_3IN97_SendCommand(0x22);
     EPD_3IN97_SendData(0xF7);
 	EPD_3IN97_SendCommand(0x20);

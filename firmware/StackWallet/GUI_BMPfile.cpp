@@ -97,8 +97,12 @@ UBYTE GUI_ReadBmp(const char *path, UWORD Xstart, UWORD Ystart)
                 }
             }
         }
-        // When reading a large amount of data, increase the delay to facilitate the CPU in processing the content of other threads
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // Yield only every 32 rows: SD reads are fast and the per-byte
+        // Paint_SetPixel loop is CPU-bound, so a 1ms delay per row would add
+        // ~0.5-0.8s of pure padding to an image load.
+        if ((y & 0x1F) == 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
     fclose(f);
 
