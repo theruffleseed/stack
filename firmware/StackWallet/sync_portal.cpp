@@ -79,9 +79,9 @@ bool runSyncPortal() {
     // the phone's captive-portal probe (hotspot-detect.html, generate_204,
     // ...) land on the page.
     server.on("/", HTTP_GET,
-              [&]() { server.send_P(200, PGM_P("text/html"), kSyncPageHtml); });
+              [&]() { server.send_P(200, "text/html", kSyncPageHtml); });
     server.onNotFound(
-        [&]() { server.send_P(200, PGM_P("text/html"), kSyncPageHtml); });
+        [&]() { server.send_P(200, "text/html", kSyncPageHtml); });
 
     server.on("/upload", HTTP_POST, [&]() {
         const String dir = server.arg("dir");
