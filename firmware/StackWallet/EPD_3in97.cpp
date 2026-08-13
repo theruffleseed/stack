@@ -513,23 +513,26 @@ void EPD_3IN97_V2_Display_Window_Base(const UBYTE *Image, UWORD xstart, UWORD ys
 }
 
 /******************************************************************************
-function :	Partial (windowed, differential-waveform) update.
+function :	Partial (differential-waveform) update. FULL-FRAME only despite
+            its window parameters: this panel's SSD1677 has reversed gate
+            lines, so a true windowed partial only works when the RAM Y
+            window is declared reversed (0x45 sends Yend first, then Ystart)
+            and the Y counter starts at the last gate row, with data streamed
+            top-row-first. That is exactly the sequence WaveShare's
+            xiaozhi-esp32 driver uses for this board (EPD_Init_Partial +
+            EPD_DisplayPart), reproduced here with the full 48000-byte frame,
+            which also keeps 0x26 full-frame for the later sync.
 parameter :
-    Image   : PACKED window pixels, ((Xend-Xstart)/8)*(Yend-Ystart) bytes.
-              The Waveshare original took a full-frame pointer and read it
-              sequentially, which scrambles any window narrower than the
-              frame - that bug made the first partial-update attempt draw
-              garbage and get reverted. Packing is the caller's job now.
-    Xstart/Xend : pixel columns, MUST be 8-aligned; window is half-open.
-    Returns 1 when the refresh triggered (BUSY asserted), else 0.
-
-    The differential partial waveform compares new RAM (0x24) against old
-    RAM (0x26). Call EPD_3IN97_SyncOldRamWindow() after the refresh
-    completes to keep 0x26 in step with what's actually on screen.
+    Image   : FULL frame buffer, (EPD_3IN97_WIDTH/8)*EPD_3IN97_HEIGHT bytes.
+    Window args : ignored (kept for the existing call signature).
+    Returns 1 when the refresh triggered (BUSY asserted), else 0. Call
+    EPD_3IN97_SyncOldRam() after the refresh completes to keep the
+    differential baseline (0x26) in step with what's actually on screen.
 ******************************************************************************/
 UBYTE EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
 {
     EPD_3IN97_Reset();
+    EPD_3IN97_ReadBusy();
 
     EPD_3IN97_SendCommand(0x18);
     EPD_3IN97_SendData(0x80);
@@ -537,18 +540,36 @@ UBYTE EPD_3IN97_Display_Partial(const UBYTE *Image, UWORD Xstart, UWORD Ystart, 
     EPD_3IN97_SendCommand(0x3C); // BorderWaveform: HiZ, required for partial
     EPD_3IN97_SendData(0x80);
 
-    EPD_3IN97_WriteRamWindow(0x24, Image, Xstart, Ystart, Xend, Yend);
+    EPD_3IN97_SendCommand(0x44); // Ram-X window start/end: full 0..WIDTH-1
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH - 1) % 256);
+    EPD_3IN97_SendData((EPD_3IN97_WIDTH - 1) / 256);
+
+    EPD_3IN97_SendCommand(0x45); // Ram-Y window: Yend first, then Ystart
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT - 1) % 256);
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT - 1) / 256);
+
+    EPD_3IN97_SendCommand(0x4E); // set RAM x address counter to 0
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendData(0x00);
+    EPD_3IN97_SendCommand(0x4F); // set RAM y address counter to last gate row
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT - 1) % 256);
+    EPD_3IN97_SendData((EPD_3IN97_HEIGHT - 1) / 256);
+
+    EPD_3IN97_ReadBusy();
+
+    EPD_3IN97_SendCommand(0x24);
+    EPD_3IN97_SendDataBlock(Image,
+                            (UDOUBLE)(EPD_3IN97_WIDTH / 8) * EPD_3IN97_HEIGHT);
     return EPD_3IN97_TriggerRefresh(0xFF);
 }
 
 void EPD_3IN97_SyncOldRam(const UBYTE *Image)
 {
     EPD_3IN97_WriteRamWindow(0x26, Image, 0, 0, EPD_3IN97_WIDTH, EPD_3IN97_HEIGHT);
-}
-
-void EPD_3IN97_SyncOldRamWindow(const UBYTE *Image, UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend)
-{
-    EPD_3IN97_WriteRamWindow(0x26, Image, Xstart, Ystart, Xend, Yend);
 }
 
 void EPD_3IN97_Display_4Gray(const UBYTE *Image)
