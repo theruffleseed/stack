@@ -3,6 +3,7 @@
 #include "display.h"
 #include "ota.h"
 #include "storage.h"
+#include "sync_portal.h"
 #include "version.h"
 #include "wifi_provision.h"
 
@@ -85,7 +86,8 @@ struct ListState {
 ListState homeState, cardsState, ticketsState, booksState, todoState, settingsState;
 std::vector<TodoItem> todoItems;
 
-const char *kSettingsActions[] = {"Rescan SD Card", "Check for Updates", "Wi-Fi Setup"};
+const char *kSettingsActions[] = {"Rescan SD Card", "Check for Updates", "Wi-Fi Setup",
+                                  "Wi-Fi Sync"};
 const int kSettingsActionCount = sizeof(kSettingsActions) / sizeof(kSettingsActions[0]);
 
 // Book reader state
@@ -877,8 +879,14 @@ void handleSelect() {
                 Display::beginPartialDraw();
                 drawSettingsInfo(56, OTA::lastCheckStatus().c_str());
                 Display::partialUpdate(kEdge, rowY - 4, Display::width() - kEdge, rowY + 28);
-            } else {
+            } else if (settingsState.selected == 2) {
                 WifiProvision::runSetupPortal();
+                dirty = true;
+            } else {
+                // Wi-Fi Sync: phone connects to the wallet's AP and pushes
+                // books / membership QR cards to the SD card.
+                SyncPortal::runSyncPortal();
+                Storage::loadManifest();
                 dirty = true;
             }
             break;

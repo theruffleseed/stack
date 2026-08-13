@@ -281,4 +281,48 @@ bool saveTodo(const std::vector<TodoItem> &items) {
     return true;
 }
 
+bool addManifestItem(const char *section, const String &name, const String &filename) {
+    if (!mounted) return false;
+    if (strcmp(section, "cards") != 0 && strcmp(section, "books") != 0) return false;
+    const char *key = (strcmp(section, "books") == 0) ? "file" : "image";
+    if (name.length() == 0 || filename.length() == 0) return false;
+
+    FILE *f = fopen(mountPath(MANIFEST_PATH).c_str(), "r");
+    JsonDocument doc;
+    bool haveDoc = false;
+    if (f) {
+        String content = readAll(f);
+        fclose(f);
+        if (content.length() > 0) {
+            DeserializationError err = deserializeJson(doc, content.c_str());
+            haveDoc = !err;
+        }
+    }
+    if (!haveDoc) return false;
+
+    JsonArray arr = doc[section].is<JsonArray>() ? doc[section].as<JsonArray>()
+                                                 : doc[section].to<JsonArray>();
+    bool replaced = false;
+    for (JsonObject obj : arr) {
+        if (obj["name"].as<String>() == name) {
+            obj[key] = filename;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        JsonObject obj = arr.add<JsonObject>();
+        obj["name"] = name;
+        obj[key] = filename;
+    }
+
+    String out;
+    serializeJsonPretty(doc, out);
+    f = fopen(mountPath(MANIFEST_PATH).c_str(), "w");
+    if (!f) return false;
+    size_t n = fwrite(out.c_str(), 1, out.length(), f);
+    fclose(f);
+    return n == out.length();
+}
+
 } // namespace Storage

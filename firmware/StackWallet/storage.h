@@ -50,4 +50,11 @@ bool loadWifiCredentials(String &ssid, String &password);
 
 bool isMounted();
 
+// Appends a new entry to the "cards" or "books" section of manifest.json
+// (replacing an existing entry with the same name). `filename` is a path
+// relative to the SD card root, e.g. "cards/gold.bmp". Used after a Wi-Fi
+// Sync upload so the lists pick the new content up on the next rescan.
+// Returns false if the card is not mounted or the manifest can't be edited.
+bool addManifestItem(const char *section, const String &name, const String &filename);
+
 } // namespace Storage

@@ -77,6 +77,14 @@
 #define WIFI_SETUP_TIMEOUT_MS (5UL * 60UL * 1000UL) // 5 minutes
 
 // ---------------------------------------------------------------------------
+// Wi-Fi Sync (Settings > Wi-Fi Sync): a temporary open AP that serves a web
+// page for pushing e-books and membership QR cards to the SD card from a
+// phone. See sync_portal.cpp and sync_page.h.
+// ---------------------------------------------------------------------------
+#define WIFI_SYNC_AP_SSID "StackWallet-Sync"
+#define WIFI_SYNC_TIMEOUT_MS (5UL * 60UL * 1000UL) // 5 minutes
+
+// ---------------------------------------------------------------------------
 // Power: after this long without any button press the panel is put into deep
 // sleep (near-zero draw; the e-ink image persists). Any button wakes it.
 // ---------------------------------------------------------------------------
