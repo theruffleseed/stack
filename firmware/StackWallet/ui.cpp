@@ -653,8 +653,17 @@ void drawSettingsInfo(int y, const char *otaStatusOverride = nullptr) {
     }
 }
 
-void drawSettingsScreen() {
-    Display::beginFrame();
+// Like the home screen, consecutive settings moves push only the changed
+// pixels with a differential partial refresh instead of re-sending the whole
+// panel every press. Full refresh only on first entry.
+bool settingsPartialPending = false;
+
+void drawSettingsScreen(bool partial) {
+    if (partial) {
+        Display::beginPartialFrame();
+    } else {
+        Display::beginFrame();
+    }
     drawHeader("Settings");
     drawSettingsInfo(56);
     Paint_DrawLine(kEdge, 56 + 4 * 30 + 4, Display::width() - kEdge, 56 + 4 * 30 + 4, BLACK,
@@ -666,7 +675,11 @@ void drawSettingsScreen() {
     }
 
     drawFooter("UP/DOWN move   SELECT choose   BOOT back");
-    Display::endFrame(true);
+    if (partial) {
+        Display::partialFullFrame();
+    } else {
+        Display::endFrame(true);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -719,7 +732,12 @@ void render() {
             // or navigated; nothing to redraw here on its own.
             break;
         case SCREEN_SETTINGS:
-            drawSettingsScreen();
+            if (settingsPartialPending) {
+                settingsPartialPending = false;
+                drawSettingsScreen(true);
+            } else {
+                drawSettingsScreen(false);
+            }
             break;
     }
 }
@@ -775,6 +793,7 @@ void handleUp() {
         case SCREEN_SETTINGS:
             moveSelection(settingsState, -1, kSettingsActionCount);
             dirty = true;
+            settingsPartialPending = true;
             break;
         default:
             break;
@@ -822,6 +841,7 @@ void handleDown() {
         case SCREEN_SETTINGS:
             moveSelection(settingsState, 1, kSettingsActionCount);
             dirty = true;
+            settingsPartialPending = true;
             break;
         default:
             break;
