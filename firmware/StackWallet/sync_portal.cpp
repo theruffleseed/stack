@@ -82,6 +82,7 @@ bool runSyncPortal() {
               [&]() { server.send_P(200, "text/html", kSyncPageHtml); });
     server.onNotFound(
         [&]() { server.send_P(200, "text/html", kSyncPageHtml); });
+    server.begin();
 
     server.on("/upload", HTTP_POST, [&]() {
         const String dir = server.arg("dir");
