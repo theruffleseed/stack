@@ -29,6 +29,15 @@
 #define BTN_BACK_PIN 0 // shared with the BOOT strapping button
 
 // ---------------------------------------------------------------------------
+// I2C bus to the onboard PMU/sensors (docs/HARDWARE.md). Pins verified
+// against Waveshare's i2c_bsp ESP-IDF component; the AXP2101 carries the
+// battery gauge the top-right status icon reads.
+// ---------------------------------------------------------------------------
+#define I2C_SDA_PIN 41
+#define I2C_SCL_PIN 42
+#define AXP2101_ADDR 0x34
+
+// ---------------------------------------------------------------------------
 // OTA: the device polls the GitHub Releases API for this repo and, if the
 // latest release tag differs from the version this firmware was built with,
 // downloads and flashes releases/latest/download's "firmware.bin" asset.

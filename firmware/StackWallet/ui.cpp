@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "battery.h"
 #include "config.h"
 #include "display.h"
 #include "ota.h"
@@ -147,10 +148,55 @@ void moveSelection(ListState &st, int delta, int count) {
 // Shared chrome: header band, footer hint line
 // ---------------------------------------------------------------------------
 
+// Battery icon, right-aligned in the top-right corner. `c` is the foreground
+// color so it works on white (home) and black (header band) backgrounds.
+// Classic 4-bar fill for crisp 1-bit e-ink rendering; a lightning bolt is
+// cut out while charging. Hidden when no cell is detected.
+void drawBatteryIcon(UWORD c) {
+    const int W = Display::width();
+    const int h = 20;
+    const int y = 12;
+    const int w = 30;
+    const int x = W - w - 12;
+    const UWORD bg = (c == WHITE) ? BLACK : WHITE; // bolt color = background
+
+    const bool present = Battery::present();
+    const int pct = Battery::percent();
+    const bool charging = Battery::isCharging();
+    if (!present && !charging) return;
+
+    // Terminal nub
+    Paint_DrawRectangle(x + w, y + 6, x + w + 2, y + 13, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+
+    // Outline
+    Paint_DrawRectangle(x, y, x + w - 1, y + h - 1, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+
+    // Segmented fill: 1..4 bars, 1px gaps
+    if (pct >= 0 && !charging) {
+        const int segs = max(1, (pct + 24) / 25);
+        const int segW = 5;
+        const int gap = 1;
+        for (int i = 0; i < segs; i++) {
+            Paint_DrawRectangle(x + 2 + i * (segW + gap), y + 2,
+                                x + 2 + i * (segW + gap) + segW - 1, y + h - 3, c,
+                                DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        }
+    }
+
+    // Lightning bolt while charging
+    if (charging) {
+        const int bx = x + w / 2 - 4;
+        Paint_DrawLine(bx + 7, y + 1, bx + 1, y + 8, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(bx + 1, y + 8, bx + 6, y + 8, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(bx + 6, y + 8, bx + 2, y + h - 2, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    }
+}
+
 void drawHeader(const char *title) {
     Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, BLACK, WHITE);
     Paint_DrawLine(0, kHeaderH - 1, Display::width(), kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
                    LINE_STYLE_SOLID);
+    drawBatteryIcon(WHITE);
 }
 
 void drawFooter(const char *hint) {
@@ -283,6 +329,9 @@ void drawHomeContent(bool initPanel) {
     String status = homeStatusLine();
     Paint_DrawString_EN(centerX(status.c_str(), Font12), 20 + Font24.Height + 8, status.c_str(),
                         &Font12, BLACK, WHITE);
+
+    // Battery status, top-right of the masthead row
+    drawBatteryIcon(BLACK);
 
     // Divider between the masthead and the menu
     Paint_DrawLine(24, 76, W - 24, 76, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);

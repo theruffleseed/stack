@@ -2,6 +2,7 @@
 // ePaper 3.97" board (800x480). See ../../README.md for the project
 // overview and ../../docs/ for hardware, OTA, and content details.
 #include "config.h"
+#include "battery.h"
 #include "display.h"
 #include "ota.h"
 #include "storage.h"
@@ -61,6 +62,8 @@ void setup() {
     Serial.println("Full-panel clear (screen should flash white)...");
     Display::fullClear();
     Serial.println("Full-panel clear done");
+
+    Battery::begin();
 
     if (!Storage::begin()) {
         Serial.println("WARNING: microSD card not found or failed to mount");
