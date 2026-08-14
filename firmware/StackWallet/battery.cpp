@@ -13,6 +13,8 @@ constexpr uint8_t kStatus1 = 0x00;   // bit3: battery connected
 constexpr uint8_t kStatus2 = 0x01;   // bits7-5: 1=charging, 2=discharging, 0=standby(full)
 constexpr uint8_t kAdcChannelCtrl = 0x30; // bit0: battery voltage ADC enable
 constexpr uint8_t kBatDetCtrl = 0x68;     // bit0: battery detection enable
+constexpr uint8_t kFuelGaugeCtrl = 0xA2;  // bit0: fuel gauge (coulomb counter) enable
+constexpr uint8_t kFuelGaugeReset = 0x17; // bit2: fuel gauge reset (pulse to (re)load SOC)
 constexpr uint8_t kBatPercent = 0xA4;     // gauge percentage, 0..100
 
 bool readReg(uint8_t reg, uint8_t &val) {
@@ -46,6 +48,14 @@ void begin() {
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     setRegBit(kAdcChannelCtrl, 0, true); // battery voltage ADC on
     setRegBit(kBatDetCtrl, 0, true);     // battery detection on
+    // The gauge that drives the 0xA4 percentage is disabled by default on
+    // the AXP2101 (0xA2 bit0 = 0). Previous firmware only worked because
+    // the module's factory code had left it enabled in the PMU's registers;
+    // after a gauge/power reset it reads 0. Own the init ourselves: enable
+    // the gauge and pulse its reset so it (re)loads the SOC estimate.
+    setRegBit(kFuelGaugeCtrl, 0, true);
+    setRegBit(kFuelGaugeReset, 2, true);
+    setRegBit(kFuelGaugeReset, 2, false);
 }
 
 bool present() {

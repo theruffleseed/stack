@@ -11,6 +11,12 @@ button navigation:
   Roadmap)
 - **A static DuitNow QR** for receiving payments
 - **A plain-text e-book/PDF reader**, paginated on-device
+- **A live battery indicator** (AXP2101) - level bars plus a charging bolt,
+  shown on the home screen and every sub-screen header
+
+Content (cards, tickets, QR, books, to-do) lives on the microSD card and is
+pushed there from a phone over the built-in Wi-Fi Sync portal, or by copying
+files onto the card directly (see [docs/CONTENT.md](docs/CONTENT.md)).
 
 Firmware is a standard Arduino IDE sketch. Pushing to GitHub is enough to
 get new firmware onto the device over the air - no cable, no self-hosted
@@ -108,8 +114,21 @@ Deliberately out of scope for v1, called out here rather than half-built:
   `todo.txt` on the card directly)
 - On-device PDF rendering (v1 converts PDFs to plain text on a computer -
   see [docs/CONTENT.md](docs/CONTENT.md))
-- Battery percentage (AXP2101) and clock (PCF85063) readouts - the I2C bus
-  and both chips are on the board but unused by this firmware so far
+- Clock (PCF85063) readout - the I2C chip is on the board but unused so far
 - Deep sleep / power tuning for longer battery life between button presses
 - Firmware signature verification for OTA (currently TLS-only, see
   [docs/OTA.md](docs/OTA.md#security-tradeoffs-of-the-current-setup))
+
+### Next phase (agreed 2026-08-14)
+
+A richer phone-side upload experience for content, replacing the current
+plain web page served by the Wi-Fi Sync portal:
+
+- **Drag-drop / file-selection UI on the phone** for loyalty cards (.bmp),
+  e-books (.txt), and to-do lists
+- **todo.txt support in the portal** (its `/upload` handler currently
+  accepts only `books` and `cards` directories - `sync_portal.cpp`)
+- **Calendar** as a new content type: a new file format + manifest handling,
+  a portal upload path, and an on-device month/day view
+- Manifest/rescan handling so newly uploaded content appears without a
+  manual rescan

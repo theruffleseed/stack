@@ -158,7 +158,6 @@ void drawBatteryIcon(UWORD c) {
     const int y = 12;
     const int w = 30;
     const int x = W - w - 12;
-    const UWORD bg = (c == WHITE) ? BLACK : WHITE; // bolt color = background
 
     const bool present = Battery::present();
     const int pct = Battery::percent();
@@ -183,19 +182,25 @@ void drawBatteryIcon(UWORD c) {
         }
     }
 
-    // Lightning bolt while charging
+    // Lightning bolt while charging. Drawn in the foreground color so it is
+    // visible on both backgrounds (black on the white home masthead, white
+    // on the black sub-screen header band). A bolt in the "background"
+    // color would blend into the battery interior and vanish on both.
     if (charging) {
         const int bx = x + w / 2 - 4;
-        Paint_DrawLine(bx + 7, y + 1, bx + 1, y + 8, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-        Paint_DrawLine(bx + 1, y + 8, bx + 6, y + 8, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-        Paint_DrawLine(bx + 6, y + 8, bx + 2, y + h - 2, bg, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(bx + 7, y + 1, bx + 1, y + 8, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(bx + 1, y + 8, bx + 6, y + 8, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+        Paint_DrawLine(bx + 6, y + 8, bx + 2, y + h - 2, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
     }
 }
 
 void drawHeader(const char *title) {
-    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, BLACK, WHITE);
-    Paint_DrawLine(0, kHeaderH - 1, Display::width(), kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
-                   LINE_STYLE_SOLID);
+    // Black title band, as the battery icon is drawn in white on it (and as
+    // sync_portal's message screens already do). The band fill also anchors
+    // the list screens visually below the home masthead.
+    Paint_DrawRectangle(0, 0, Display::width() - 1, kHeaderH - 1, BLACK, DOT_PIXEL_1X1,
+                        DRAW_FILL_FULL);
+    Paint_DrawString_EN(kEdge, (kHeaderH - Font20.Height) / 2, title, &Font20, WHITE, BLACK);
     drawBatteryIcon(WHITE);
 }
 
@@ -310,6 +315,11 @@ String homeStatusLine() {
 // refresh so the selection accent bar moves without a full-panel flash.
 bool homePartialPending = false;
 
+// Same for the generic list screens (cards/tickets/books/todo): entry and
+// consecutive moves redraw with a differential partial refresh so a press
+// never triggers a full-panel push or the every-5th clean refresh.
+bool listPartialPending = false;
+
 void drawHomeContent(bool initPanel) {
     const int W = Display::width();
     const int H = Display::height();
@@ -408,8 +418,12 @@ void drawListRow(bool sel, const String &text, int y) {
 }
 
 void drawListScreen(const char *title, const std::vector<String> &items, const ListState &st,
-                    const char *emptyMessage, const char *footer) {
-    Display::beginFrame();
+                    const char *emptyMessage, const char *footer, bool partial) {
+    if (partial) {
+        Display::beginPartialFrame();
+    } else {
+        Display::beginFrame();
+    }
     drawHeader(title);
 
     if (items.empty()) {
@@ -424,7 +438,11 @@ void drawListScreen(const char *title, const std::vector<String> &items, const L
     }
 
     drawFooter(footer);
-    Display::endFrame(true);
+    if (partial) {
+        Display::partialFullFrame();
+    } else {
+        Display::endFrame(true);
+    }
 }
 
 std::vector<String> namesOf(const std::vector<ContentItem> &items) {
@@ -516,8 +534,12 @@ void drawDuitNowScreen() {
 // To-do list
 // ---------------------------------------------------------------------------
 
-void drawTodoScreen() {
-    Display::beginFrame();
+void drawTodoScreen(bool partial) {
+    if (partial) {
+        Display::beginPartialFrame();
+    } else {
+        Display::beginFrame();
+    }
     drawHeader("To-Do List");
 
     if (todoItems.empty()) {
@@ -555,7 +577,11 @@ void drawTodoScreen() {
     }
 
     drawFooter("UP/DOWN move   SELECT check   BOOT back");
-    Display::endFrame(true);
+    if (partial) {
+        Display::partialFullFrame();
+    } else {
+        Display::endFrame(true);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +775,8 @@ void render() {
         case SCREEN_CARDS:
             drawListScreen("Loyalty Cards", namesOf(Storage::cards()), cardsState,
                            "No cards on SD card. See docs/CONTENT.md.",
-                           "UP/DOWN move   SELECT open   BOOT back");
+                           "UP/DOWN move   SELECT open   BOOT back", listPartialPending);
+            listPartialPending = false;
             break;
         case SCREEN_CARD_VIEW:
             showImage("Loyalty Card", Storage::cards()[cardsState.selected].path);
@@ -757,13 +784,15 @@ void render() {
         case SCREEN_TICKETS:
             drawListScreen("Flight Tickets", namesOf(Storage::tickets()), ticketsState,
                            "No tickets on SD card. See docs/CONTENT.md.",
-                           "UP/DOWN move   SELECT open   BOOT back");
+                           "UP/DOWN move   SELECT open   BOOT back", listPartialPending);
+            listPartialPending = false;
             break;
         case SCREEN_TICKET_VIEW:
             showImage("Flight Ticket", Storage::tickets()[ticketsState.selected].path);
             break;
         case SCREEN_TODO:
-            drawTodoScreen();
+            drawTodoScreen(listPartialPending);
+            listPartialPending = false;
             break;
         case SCREEN_QR:
             drawDuitNowScreen();
@@ -774,7 +803,8 @@ void render() {
         case SCREEN_BOOKS:
             drawListScreen("E-Book Reader", namesOf(Storage::books()), booksState,
                            "No books on SD card. See docs/CONTENT.md.",
-                           "UP/DOWN move   SELECT open   BOOT back");
+                           "UP/DOWN move   SELECT open   BOOT back", listPartialPending);
+            listPartialPending = false;
             break;
         case SCREEN_BOOK_READ:
             // Page already rendered by showReaderPage() when this screen was entered
@@ -793,7 +823,7 @@ void render() {
 
 void goHome() {
     currentScreen = SCREEN_HOME;
-    homePartialPending = false;
+    homePartialPending = true; // returning home is differential too
     dirty = true;
 }
 
@@ -811,18 +841,22 @@ void handleUp() {
         case SCREEN_CARDS:
             moveSelection(cardsState, -1, Storage::cards().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_TICKETS:
             moveSelection(ticketsState, -1, Storage::tickets().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_BOOKS:
             moveSelection(booksState, -1, Storage::books().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_TODO:
             moveSelection(todoState, -1, todoItems.size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
@@ -859,18 +893,22 @@ void handleDown() {
         case SCREEN_CARDS:
             moveSelection(cardsState, 1, Storage::cards().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_TICKETS:
             moveSelection(ticketsState, 1, Storage::tickets().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_BOOKS:
             moveSelection(booksState, 1, Storage::books().size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_TODO:
             moveSelection(todoState, 1, todoItems.size());
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_CARD_VIEW:
             if (!Storage::cards().empty()) {
@@ -902,6 +940,10 @@ void handleSelect() {
         case SCREEN_HOME:
             currentScreen = kHomeMenu[homeState.selected].target;
             dirty = true;
+            // Enter every sub-screen with a differential refresh (like a home
+            // move) instead of a full-panel push. Image screens ignore the flag.
+            listPartialPending = true;
+            settingsPartialPending = true;
             break;
         case SCREEN_CARDS:
             if (!Storage::cards().empty()) {
@@ -927,6 +969,7 @@ void handleSelect() {
                 todoItems[todoState.selected].done = !todoItems[todoState.selected].done;
                 Storage::saveTodo(todoItems);
                 dirty = true;
+                listPartialPending = true;
             }
             break;
         case SCREEN_SETTINGS:
@@ -971,16 +1014,19 @@ void handleBack() {
         case SCREEN_CARD_VIEW:
             currentScreen = SCREEN_CARDS;
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_TICKET_VIEW:
             currentScreen = SCREEN_TICKETS;
             dirty = true;
+            listPartialPending = true;
             break;
         case SCREEN_BOOK_READ:
             if (readerFile) fclose(readerFile);
             readerFile = nullptr;
             currentScreen = SCREEN_BOOKS;
             dirty = true;
+            listPartialPending = true;
             break;
         default:
             goHome();

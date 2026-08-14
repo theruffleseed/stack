@@ -1,3 +1,10 @@
-[ ] Copy this folder onto the microSD card
-[ ] Generate a card barcode with tools/make_bmp.py
-[x] Set up Stack Wallet firmware
+[ ] Pork Belly
+[ ] Pepper/Salt/Garlic/Sugar/Brown Sugar
+[ ] Lipton Peach Tea
+[ ] Peach Jam
+[ ] Cider/Vinegar
+[ ] Cooking Oil
+[ ] Pickled Mustard
+[ ] Stomach Pepper Soup
+[ ] Chicken Thigh
+[ ] Brocolli
