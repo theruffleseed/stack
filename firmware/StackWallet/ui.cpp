@@ -5,6 +5,7 @@
 #include "ota.h"
 #include "storage.h"
 #include "sync_portal.h"
+#include "timesvc.h"
 #include "version.h"
 #include "wifi_provision.h"
 
@@ -15,6 +16,8 @@
 #include <WiFi.h>
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace {
 
@@ -73,6 +76,7 @@ enum Screen {
     SCREEN_BUSINESS,
     SCREEN_BOOKS,
     SCREEN_BOOK_READ,
+    SCREEN_CALENDAR,
     SCREEN_SETTINGS,
 };
 
@@ -217,9 +221,11 @@ void drawFooter(const char *hint) {
 enum HomeIcon {
     ICON_CARD,
     ICON_TICKET,
+    ICON_GIFT,
     ICON_TODO,
     ICON_QR,
     ICON_BOOK,
+    ICON_CALENDAR,
     ICON_SETTINGS,
 };
 
@@ -232,13 +238,28 @@ struct HomeEntry {
 
 const HomeEntry kHomeMenu[] = {
     {"DuitNow QR", "Receive money", ICON_QR, SCREEN_QR},
-    {"Business Card", "Scan to save contact", ICON_CARD, SCREEN_BUSINESS},
-    {"Loyalty Cards", "Rewards & barcodes", ICON_CARD, SCREEN_CARDS},
-    {"To-Do List", "Check things off", ICON_TODO, SCREEN_TODO},
-    {"E-Book Reader", "Read from the card", ICON_BOOK, SCREEN_BOOKS},
+    {"ID & Business Cards", "Scan to save contact", ICON_CARD, SCREEN_BUSINESS},
+    {"Loyalty Cards", "Rewards & barcodes", ICON_GIFT, SCREEN_CARDS},
+    {"Passes", "Boarding & event passes", ICON_TICKET, SCREEN_TICKETS},
+    {"Calendar", "Month at a glance", ICON_CALENDAR, SCREEN_CALENDAR},
+    {"To-Do / Checklists", "Check things off", ICON_TODO, SCREEN_TODO},
+    {"E-Books", "Read from the card", ICON_BOOK, SCREEN_BOOKS},
     {"Settings", "Wi-Fi, updates, info", ICON_SETTINGS, SCREEN_SETTINGS},
 };
 const int kHomeMenuCount = sizeof(kHomeMenu) / sizeof(kHomeMenu[0]);
+
+// Carry Open logo mark: a solid square with a slot cut out of the middle
+// of its right edge - a bold square "C" opening right. Slot proportions
+// measured from the brand reference (~60% width, ~19% height, centered).
+void drawLogoMark(int x, int y, UWORD c) {
+    const UWORD bg = (c == WHITE) ? BLACK : WHITE; // to punch the slot out
+    const int s = 34;             // the mark is square, 1:1
+    const int nw = s * 60 / 100;  // slot width (~60% of the square)
+    const int nh = 7;             // slot height (~19% of the square)
+    Paint_DrawRectangle(x, y, x + s - 1, y + s - 1, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    Paint_DrawRectangle(x + s - nw, y + (s - nh) / 2, x + s - 1, y + (s - nh) / 2 + nh - 1, bg,
+                        DOT_PIXEL_1X1, DRAW_FILL_FULL);
+}
 
 // Geometric glyphs drawn in a 32x32 box. `c` is the foreground color, so the
 // same drawing code works on white (normal) and black (selected) rows.
@@ -279,6 +300,26 @@ void drawIcon(HomeIcon icon, int x, int y, UWORD c) {
             Paint_DrawRectangle(x + 24, y + 24, x + 25, y + 25, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
             break;
         }
+        case ICON_GIFT: // loyalty: rewards gift box with ribbon and bow
+            Paint_DrawRectangle(x + 4, y + 11, x + 27, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawLine(x + 4, y + 15, x + 27, y + 15, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 14, y + 11, x + 17, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawLine(x + 8, y + 4, x + 15, y + 10, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawLine(x + 16, y + 10, x + 23, y + 4, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            break;
+        case ICON_CALENDAR: // month grid with a filled "today" box
+            Paint_DrawRectangle(x + 2, y + 4, x + 29, y + 27, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+            Paint_DrawRectangle(x + 2, y + 4, x + 29, y + 10, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawLine(x + 2, y + 10, x + 29, y + 10, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+            Paint_DrawRectangle(x + 7, y + 1, x + 9, y + 6, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            Paint_DrawRectangle(x + 22, y + 1, x + 24, y + 6, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            for (int gy = 14; gy <= 24; gy += 5) {
+                for (int gx = x + 6; gx < x + 28; gx += 5) {
+                    Paint_SetPixel(gx, y + gy, c);
+                }
+            }
+            Paint_DrawRectangle(x + 11, y + 12, x + 15, y + 16, c, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+            break;
         case ICON_BOOK:
             Paint_DrawRectangle(x + 3, y + 5, x + 28, y + 26, c, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
             Paint_DrawLine(x + 8, y + 5, x + 8, y + 26, c, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
@@ -331,25 +372,24 @@ void drawHomeContent(bool initPanel) {
         Display::beginPartialFrame();
     }
 
-    // Wordmark
-    Paint_DrawString_EN(centerX("STACK WALLET", Font24), 20, "STACK WALLET", &Font24, BLACK,
+    // Masthead: Carry Open "[▯" mark + PaperDeck wordmark, byline and the
+    // live status line (Wi-Fi / SD / firmware) on a small line under it.
+    drawLogoMark(16, 14, BLACK);
+    Paint_DrawString_EN(16 + 34 + 14, 14 + (34 - Font24.Height) / 2, "PaperDeck", &Font24, BLACK,
+                        WHITE);
+    drawBatteryIcon(BLACK);
+    Paint_DrawString_EN(16, 56, "by Carry Open", &Font12, BLACK, WHITE);
+    String status = homeStatusLine();
+    Paint_DrawString_EN(W - 14 - textWidth(status, Font12), 56, status.c_str(), &Font12, BLACK,
                         WHITE);
 
-    // Live status line (Wi-Fi / SD / firmware)
-    String status = homeStatusLine();
-    Paint_DrawString_EN(centerX(status.c_str(), Font12), 20 + Font24.Height + 8, status.c_str(),
-                        &Font12, BLACK, WHITE);
-
-    // Battery status, top-right of the masthead row
-    drawBatteryIcon(BLACK);
-
     // Divider between the masthead and the menu
-    Paint_DrawLine(24, 76, W - 24, 76, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    Paint_DrawLine(24, 80, W - 24, 80, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
     // Menu rows: icon + label + caption + chevron; the selected row gets a
     // left accent bar (text stays black on white for crisp e-ink rendering).
-    const int rowH = 74;
-    const int y0 = 86;
+    const int rowH = 72; // 8 rows fit between the masthead and the owner banner
+    const int y0 = 90;
     for (int i = 0; i < kHomeMenuCount; i++) {
         const int y = y0 + i * rowH;
         const bool sel = (i == homeState.selected);
@@ -360,8 +400,8 @@ void drawHomeContent(bool initPanel) {
         }
 
         drawIcon(kHomeMenu[i].icon, 18, y + (rowH - 8 - 32) / 2, BLACK);
-        Paint_DrawString_EN(64, y + 12, kHomeMenu[i].label, &Font20, BLACK, WHITE);
-        Paint_DrawString_EN(64, y + 12 + Font20.Height + 5, kHomeMenu[i].caption, &Font12, BLACK,
+        Paint_DrawString_EN(64, y + 14, kHomeMenu[i].label, &Font20, BLACK, WHITE);
+        Paint_DrawString_EN(64, y + 14 + Font20.Height + 4, kHomeMenu[i].caption, &Font12, BLACK,
                             WHITE);
 
         // Chevron
@@ -585,6 +625,146 @@ void drawTodoScreen(bool partial) {
 }
 
 // ---------------------------------------------------------------------------
+// Calendar: month grid with the current day boxed. Time comes from TimeSvc
+// (NTP while online, NVS-cached epoch offline); if the clock was never set,
+// the firmware build date's month is shown as a rough fallback.
+// ---------------------------------------------------------------------------
+
+int calMonthOffset = 0; // 0 = current month, +1 next month, -1 previous
+bool calendarPartialPending = false;
+
+const char *const kMonthNames[] = {"January",   "February", "March",    "April",
+                                   "May",       "June",     "July",     "August",
+                                   "September", "October",  "November", "December"};
+const int kMonthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+int daysInMonth(int month, int year) {
+    if (month == 1 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) return 29;
+    return kMonthDays[month];
+}
+
+// Compile-date month/year ("Mmm dd yyyy"), the never-synced fallback.
+int buildMonth() {
+    static const char kMon[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    for (int i = 0; i < 12; i++) {
+        if (!strncmp(__DATE__, kMon[i], 3)) return i;
+    }
+    return 0;
+}
+int buildYear() { return atoi(__DATE__ + 7); } // "Mmm dd yyyy": year at index 7
+
+// Fills in the current date, or the build-date fallback with today = 0.
+// Returns true when the clock has actually been set at some point.
+bool calendarNow(int &year, int &month, int &today) {
+    struct tm t;
+    bool fromCache;
+    if (TimeSvc::now(t, fromCache)) {
+        year = t.tm_year + 1900;
+        month = t.tm_mon;
+        today = t.tm_mday;
+        return true;
+    }
+    year = buildYear();
+    month = buildMonth();
+    today = 0;
+    return false;
+}
+
+void drawCalendarScreen(bool partial) {
+    const int W = Display::width();
+    if (partial) {
+        Display::beginPartialFrame();
+    } else {
+        Display::beginFrame();
+    }
+    drawHeader("Calendar");
+
+    int year, month, today;
+    const bool haveTime = calendarNow(year, month, today);
+
+    // Displayed page: current month + offset, normalized
+    int dy = year, dm = month + calMonthOffset;
+    while (dm < 0) {
+        dm += 12;
+        dy--;
+    }
+    while (dm > 11) {
+        dm -= 12;
+        dy++;
+    }
+
+    // Month title with paging chevrons
+    char title[24];
+    snprintf(title, sizeof(title), "%s %d", kMonthNames[dm], dy);
+    const int tx = max(0, (W - textWidth(title, Font24)) / 2);
+    Paint_DrawString_EN(tx, 56, title, &Font24, BLACK, WHITE);
+    const int tcy = 56 + Font24.Height / 2;
+    Paint_DrawLine(tx - 22, tcy - 7, tx - 30, tcy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    Paint_DrawLine(tx - 22, tcy + 7, tx - 30, tcy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    const int rx = tx + textWidth(title, Font24) + 14;
+    Paint_DrawLine(rx, tcy - 7, rx + 8, tcy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+    Paint_DrawLine(rx, tcy + 7, rx + 8, tcy, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+
+    // Weekday header, Monday-first
+    const char *wd = "Mo Tu We Th Fr Sa Su";
+    Paint_DrawString_EN(centerX(wd, Font16), 104, wd, &Font16, BLACK, WHITE);
+    Paint_DrawLine(kEdge, 128, W - kEdge, 128, BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+
+    // First weekday of the month (Monday = 0)
+    struct tm first = {};
+    first.tm_year = dy - 1900;
+    first.tm_mon = dm;
+    first.tm_mday = 1;
+    mktime(&first);
+    const int lead = (first.tm_wday + 6) % 7;
+
+    const int gx0 = 24, gw = (W - 2 * 24) / 7;
+    const int gy0 = 142, gh = 86;
+    const int days = daysInMonth(dm, dy);
+    for (int i = 0; i < days; i++) {
+        const int r = (lead + i) / 7, c = (lead + i) % 7;
+        const int cx = gx0 + c * gw + gw / 2;
+        const int cy = gy0 + r * gh;
+        const bool isToday = haveTime && calMonthOffset == 0 && i + 1 == today;
+
+        if (isToday) { // inverted day cell: white digit on a black box
+            Paint_DrawRectangle(cx - gw / 2 + 4, cy + 8, cx + gw / 2 - 4, cy + 48, BLACK,
+                                DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        }
+        char ds[3];
+        snprintf(ds, sizeof(ds), "%d", i + 1);
+        Paint_DrawString_EN(cx - textWidth(ds, Font20) / 2, cy + 18, ds, &Font20,
+                            isToday ? WHITE : BLACK, isToday ? BLACK : WHITE);
+    }
+
+    // Time-source status under the grid
+    char st[64];
+    struct tm t;
+    bool fromCache;
+    if (TimeSvc::synced()) {
+        TimeSvc::now(t, fromCache);
+        char buf[24];
+        strftime(buf, sizeof(buf), "%d %b %Y, %H:%M", &t);
+        snprintf(st, sizeof(st), "Time: %s (NTP)", buf);
+    } else if (TimeSvc::now(t, fromCache)) {
+        char buf[24];
+        strftime(buf, sizeof(buf), "%d %b %Y, %H:%M", &t);
+        snprintf(st, sizeof(st), "Time: %s (approx - last sync)", buf);
+    } else {
+        snprintf(st, sizeof(st), "Clock never set - connect Wi-Fi once to set it");
+    }
+    Paint_DrawString_EN(kEdge, 672, st, &Font12, BLACK, WHITE);
+
+    drawFooter("UP/DOWN month   SELECT today   BOOT back");
+    if (partial) {
+        Display::partialFullFrame();
+    } else {
+        Display::endFrame(true);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // E-book reader (plain text, paginated with lazily-discovered page offsets)
 // ---------------------------------------------------------------------------
 
@@ -782,13 +962,13 @@ void render() {
             showImage("Loyalty Card", Storage::cards()[cardsState.selected].path);
             break;
         case SCREEN_TICKETS:
-            drawListScreen("Flight Tickets", namesOf(Storage::tickets()), ticketsState,
-                           "No tickets on SD card. See docs/CONTENT.md.",
+            drawListScreen("Passes", namesOf(Storage::tickets()), ticketsState,
+                           "No passes on SD card. See docs/CONTENT.md.",
                            "UP/DOWN move   SELECT open   BOOT back", listPartialPending);
             listPartialPending = false;
             break;
         case SCREEN_TICKET_VIEW:
-            showImage("Flight Ticket", Storage::tickets()[ticketsState.selected].path);
+            showImage("Pass", Storage::tickets()[ticketsState.selected].path);
             break;
         case SCREEN_TODO:
             drawTodoScreen(listPartialPending);
@@ -809,6 +989,10 @@ void render() {
         case SCREEN_BOOK_READ:
             // Page already rendered by showReaderPage() when this screen was entered
             // or navigated; nothing to redraw here on its own.
+            break;
+        case SCREEN_CALENDAR:
+            drawCalendarScreen(calendarPartialPending);
+            calendarPartialPending = false;
             break;
         case SCREEN_SETTINGS:
             if (settingsPartialPending) {
@@ -878,6 +1062,11 @@ void handleUp() {
             dirty = true;
             settingsPartialPending = true;
             break;
+        case SCREEN_CALENDAR:
+            calMonthOffset--;
+            dirty = true;
+            calendarPartialPending = true;
+            break;
         default:
             break;
     }
@@ -930,6 +1119,11 @@ void handleDown() {
             dirty = true;
             settingsPartialPending = true;
             break;
+        case SCREEN_CALENDAR:
+            calMonthOffset++;
+            dirty = true;
+            calendarPartialPending = true;
+            break;
         default:
             break;
     }
@@ -944,6 +1138,8 @@ void handleSelect() {
             // move) instead of a full-panel push. Image screens ignore the flag.
             listPartialPending = true;
             settingsPartialPending = true;
+            calendarPartialPending = true;
+            if (currentScreen == SCREEN_CALENDAR) calMonthOffset = 0;
             break;
         case SCREEN_CARDS:
             if (!Storage::cards().empty()) {
@@ -971,6 +1167,11 @@ void handleSelect() {
                 dirty = true;
                 listPartialPending = true;
             }
+            break;
+        case SCREEN_CALENDAR:
+            calMonthOffset = 0; // SELECT jumps back to the current month
+            dirty = true;
+            calendarPartialPending = true;
             break;
         case SCREEN_SETTINGS:
             if (settingsState.selected == 0) {

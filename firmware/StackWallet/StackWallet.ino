@@ -1,11 +1,12 @@
-// Stack Wallet - e-ink front panel firmware for the Waveshare ESP32-S3
-// ePaper 3.97" board (800x480). See ../../README.md for the project
+// PaperDeck (by Carry Open) - e-ink front panel firmware for the Waveshare
+// ESP32-S3 ePaper 3.97" board (800x480). See ../../README.md for the project
 // overview and ../../docs/ for hardware, OTA, and content details.
 #include "config.h"
 #include "battery.h"
 #include "display.h"
 #include "ota.h"
 #include "storage.h"
+#include "timesvc.h"
 #include "ui.h"
 #include "version.h"
 #include "wifi_provision.h"
@@ -51,7 +52,7 @@ void connectWiFi(unsigned long timeoutMs) {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    Serial.printf("Stack Wallet %s booting...\n", STACK_WALLET_VERSION);
+    Serial.printf("PaperDeck %s booting...\n", STACK_WALLET_VERSION);
 
     Display::begin();
 
@@ -71,6 +72,7 @@ void setup() {
 
     connectWiFi(8000);
     OTA::begin();
+    TimeSvc::begin(); // NTP if online; NVS-cached epoch otherwise
 
     UI::begin();
 }
@@ -78,4 +80,5 @@ void setup() {
 void loop() {
     UI::loop();
     OTA::loop();
+    TimeSvc::keepAlive(); // re-save the epoch to NVS at most hourly
 }

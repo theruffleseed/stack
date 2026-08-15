@@ -94,6 +94,16 @@
 #define WIFI_SYNC_TIMEOUT_MS (5UL * 60UL * 1000UL) // 5 minutes
 
 // ---------------------------------------------------------------------------
+// Wall clock (calendar screen): SNTP while online, NVS-cached epoch offline
+// (see timesvc.cpp). Malaysia is UTC+8 with no DST. The PCF85063 RTC on the
+// board is not driven yet - a follow-up could make time exact across full
+// power loss.
+// ---------------------------------------------------------------------------
+#define NTP_TZ_OFFSET_SEC (8 * 3600)
+#define NTP_SERVER_1 "pool.ntp.org"
+#define NTP_SERVER_2 "time.nist.gov"
+
+// ---------------------------------------------------------------------------
 // Power: after this long without any button press the panel is put into deep
 // sleep (near-zero draw; the e-ink image persists). Any button wakes it.
 // ---------------------------------------------------------------------------
