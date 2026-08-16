@@ -587,7 +587,11 @@ void Paint_DrawString_EN(UWORD Xstart, UWORD Ystart, const char * pString,
             Xpoint = Xstart;
             Ypoint = Ystart;
         }
-        Paint_DrawChar(Xpoint, Ypoint, * pString, Font, Color_Background, Color_Foreground);
+        // Upstream Waveshare bug fixed: this passed (Color_Background,
+        // Color_Foreground) into Paint_DrawChar, swapping fg/bg so every
+        // call like (..., BLACK, WHITE) rendered WHITE glyphs on BLACK-filled
+        // character cells (inverse-video chips) instead of black-on-white.
+        Paint_DrawChar(Xpoint, Ypoint, * pString, Font, Color_Foreground, Color_Background);
 
         //The next character of the address
         pString ++;
